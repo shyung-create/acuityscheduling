@@ -85,11 +85,14 @@ def load_config(path: str) -> Config:
     poll_raw = raw.get("poll") or {}
     channels_raw = raw.get("channels") or {}
 
-    if "target_dates" not in raw or not raw["target_dates"]:
-        raise ValueError("config.yaml must set at least one entry in target_dates")
+    # Empty/absent target_dates is valid -- e.g. the dashboard starts with no
+    # dates and lets you add them at runtime, persisted into state.json rather
+    # than back into this file.
+    if "target_dates" in raw and not isinstance(raw["target_dates"], list):
+        raise ValueError("config.yaml's target_dates must be a list of YYYY-MM-DD strings")
 
     return Config(
-        target_dates=list(raw["target_dates"]),
+        target_dates=list(raw.get("target_dates") or []),
         timezone=raw.get("timezone", "America/Los_Angeles"),
         time_window=TimeWindow(start=tw.get("start"), end=tw.get("end")),
         acuity=AcuityConfig(

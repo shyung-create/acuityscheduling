@@ -1,0 +1,24 @@
+[Unit]
+Description=Acuity haircut availability monitor -- web dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust User/WorkingDirectory for your machine (e.g. a Raspberry Pi or VPS).
+# Runs the dashboard AND the polling loop in one process -- do not also run
+# haircut-alarm.service (monitor.py daemon) at the same time, they'd poll independently.
+User=pi
+WorkingDirectory=/home/pi/acuityscheduling
+EnvironmentFile=/home/pi/acuityscheduling/.env
+ExecStart=/home/pi/acuityscheduling/venv/bin/python dashboard.py --config config.yaml --host 127.0.0.1 --port 5000
+Restart=on-failure
+RestartSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/pi/acuityscheduling
+
+[Install]
+WantedBy=multi-user.target

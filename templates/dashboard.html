@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haircut Availability Dashboard</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --border: #e2e5ea;
+    --text: #1a1d23;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --green: #15803d; --green-bg: #dcfce7;
+    --amber: #92400e; --amber-bg: #fef3c7;
+    --red: #b91c1c; --red-bg: #fee2e2;
+    --blue: #1d4ed8; --blue-bg: #dbeafe;
+    --gray-bg: #eef0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --surface: #1c1f26; --border: #2b2f38;
+      --text: #e7e9ee; --muted: #9aa1ac; --accent: #60a5fa;
+      --green: #4ade80; --green-bg: #113220;
+      --amber: #fbbf24; --amber-bg: #3a2a05;
+      --red: #f87171; --red-bg: #3a1414;
+      --blue: #93c5fd; --blue-bg: #102a4c;
+      --gray-bg: #262a33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14161a; --surface: #1c1f26; --border: #2b2f38;
+    --text: #e7e9ee; --muted: #9aa1ac; --accent: #60a5fa;
+    --green: #4ade80; --green-bg: #113220;
+    --amber: #fbbf24; --amber-bg: #3a2a05;
+    --red: #f87171; --red-bg: #3a1414;
+    --blue: #93c5fd; --blue-bg: #102a4c;
+    --gray-bg: #262a33;
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f6f8; --surface: #ffffff; --border: #e2e5ea;
+    --text: #1a1d23; --muted: #6b7280; --accent: #2563eb;
+    --green: #15803d; --green-bg: #dcfce7;
+    --amber: #92400e; --amber-bg: #fef3c7;
+    --red: #b91c1c; --red-bg: #fee2e2;
+    --blue: #1d4ed8; --blue-bg: #dbeafe;
+    --gray-bg: #eef0f3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 1.25rem 3rem;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  header { padding: 1.75rem 0 1rem; display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
+  h1 { font-size: 1.4rem; margin: 0; }
+  .sub { color: var(--muted); font-size: .85rem; }
+  .panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.1rem 1.25rem; margin-bottom: 1rem;
+  }
+  .panel h2 { font-size: .95rem; margin: 0 0 .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  form.add-form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: flex-start; }
+  textarea, input[type=date] {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+    padding: .55rem .7rem; font-size: .9rem; font-family: inherit;
+  }
+  textarea { flex: 1; min-width: 220px; min-height: 2.4rem; resize: vertical; }
+  button {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: .55rem 1rem; font-size: .9rem; font-weight: 600; cursor: pointer;
+  }
+  button.secondary { background: var(--gray-bg); color: var(--text); }
+  button.danger { background: var(--red-bg); color: var(--red); }
+  button:disabled { opacity: .55; cursor: default; }
+  .hint { color: var(--muted); font-size: .78rem; margin-top: .4rem; }
+  .toolbar { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .error-list { color: var(--red); font-size: .82rem; margin-top: .5rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .85rem; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem;
+    display: flex; flex-direction: column; gap: .55rem;
+  }
+  .card.slot_available { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; }
+  .date-big { font-size: 1.05rem; font-weight: 700; }
+  .weekday { color: var(--muted); font-size: .8rem; }
+  .badge {
+    display: inline-block; padding: .2rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .03em; white-space: nowrap;
+  }
+  .badge.watching { background: var(--gray-bg); color: var(--muted); }
+  .badge.window_open_no_slot { background: var(--amber-bg); color: var(--amber); }
+  .badge.slot_available { background: var(--green-bg); color: var(--green); }
+  .badge.failing { background: var(--red-bg); color: var(--red); }
+  .badge.passed { background: var(--gray-bg); color: var(--muted); }
+  .badge.dismissed { background: var(--gray-bg); color: var(--muted); }
+  .field { font-size: .82rem; display: flex; justify-content: space-between; gap: .5rem; }
+  .field .k { color: var(--muted); }
+  .times { display: flex; flex-wrap: wrap; gap: .3rem; }
+  .time-chip { background: var(--green-bg); color: var(--green); border-radius: 6px; padding: .15rem .45rem; font-size: .78rem; font-weight: 600; }
+  .card-actions { display: flex; gap: .4rem; margin-top: auto; flex-wrap: wrap; }
+  .card-actions button { padding: .35rem .6rem; font-size: .78rem; }
+  .book-link { font-size: .8rem; color: var(--accent); text-decoration: none; font-weight: 600; }
+  .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
+  .status-line { color: var(--muted); font-size: .78rem; }
+  .dry-run-flag { background: var(--amber-bg); color: var(--amber); border-radius: 6px; padding: .15rem .5rem; font-size: .72rem; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="business-name">Haircut Availability Dashboard</h1>
+      <div class="sub" id="now-line">loading…</div>
+    </div>
+    <div class="toolbar">
+      <span id="dry-run-flag" class="dry-run-flag" style="display:none;">DRY RUN</span>
+      <button class="secondary" id="poll-now-btn">Poll now</button>
+      <button class="secondary" id="test-notif-btn">Send test notification</button>
+    </div>
+  </header>
+
+  <section class="panel">
+    <h2>Add target date(s)</h2>
+    <form class="add-form" id="add-form">
+      <input type="date" id="date-picker">
+      <button type="button" id="add-picker-btn" class="secondary">+ Add date</button>
+      <textarea id="bulk-dates" placeholder="Or paste multiple dates, one per line or comma-separated: 2026-09-26, 2026-10-03"></textarea>
+      <button type="submit">Add all</button>
+    </form>
+    <div class="hint">Target dates are typically 2+ months out; the monitor tracks the shop's real booking-window opening automatically once it observes it.</div>
+    <div class="error-list" id="add-errors"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Watched dates</h2>
+    <div id="cards" class="cards"><div class="empty">Loading…</div></div>
+  </section>
+</div>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+let bookingUrl = "";
+
+function badgeLabel(b) {
+  return {
+    watching: "Watching",
+    window_open_no_slot: "Window open, no slot",
+    slot_available: "Slot available!",
+    failing: "Polling failing",
+    passed: "Date passed",
+    dismissed: "Dismissed",
+  }[b] || b;
+}
+
+function cardHtml(t) {
+  const daysLabel = t.days_until_target === 0 ? "today"
+    : t.days_until_target > 0 ? `in ${t.days_until_target}d`
+    : `${-t.days_until_target}d ago`;
+  const times = t.current_times.length
+    ? `<div class="times">${t.current_times.map(x => `<span class="time-chip">${x}</span>`).join("")}</div>
+       <a class="book-link" href="${bookingUrl}" target="_blank" rel="noopener">Book now →</a>`
+    : "";
+  const dismissBtn = t.dismissed
+    ? `<button class="secondary" data-action="undismiss" data-date="${t.date}">Re-enable</button>`
+    : `<button class="secondary" data-action="dismiss" data-date="${t.date}">Dismiss</button>`;
+  return `
+    <div class="card ${t.badge}">
+      <div class="card-head">
+        <div>
+          <div class="date-big">${t.date}</div>
+          <div class="weekday">${t.weekday} · ${daysLabel}</div>
+        </div>
+        <span class="badge ${t.badge}">${badgeLabel(t.badge)}</span>
+      </div>
+      ${times}
+      <div class="field"><span class="k">Estimated open</span><span>${t.estimated_open_date || "—"}</span></div>
+      <div class="field"><span class="k">Measured open</span><span>${t.measured_open_date || "not yet observed"}</span></div>
+      ${t.consecutive_failures > 0 ? `<div class="field"><span class="k">Consecutive failures</span><span>${t.consecutive_failures}</span></div>` : ""}
+      <div class="card-actions">
+        ${dismissBtn}
+        <button class="danger" data-action="remove" data-date="${t.date}">Remove</button>
+      </div>
+    </div>`;
+}
+
+async function refresh() {
+  const res = await fetch("/api/status");
+  const data = await res.json();
+  bookingUrl = data.booking_url;
+  $("#business-name").textContent = data.business_name + " — Availability Dashboard";
+  $("#now-line").textContent =
+    `Now: ${new Date(data.now).toLocaleString()} · Furthest bookable date seen: ${data.furthest_bookable_date || "unknown"}`;
+  $("#dry-run-flag").style.display = data.dry_run ? "inline-block" : "none";
+
+  const cards = $("#cards");
+  if (!data.targets.length) {
+    cards.innerHTML = `<div class="empty">No dates being watched yet. Add one above.</div>`;
+    return;
+  }
+  cards.innerHTML = data.targets.map(cardHtml).join("");
+}
+
+$("#add-picker-btn").addEventListener("click", () => {
+  const v = $("#date-picker").value;
+  if (!v) return;
+  const ta = $("#bulk-dates");
+  ta.value = ta.value ? ta.value + "\n" + v : v;
+  $("#date-picker").value = "";
+});
+
+$("#add-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const dates = $("#bulk-dates").value.trim();
+  if (!dates) return;
+  const res = await fetch("/api/targets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dates }),
+  });
+  const data = await res.json();
+  const errEl = $("#add-errors");
+  const errs = Object.entries(data.errors || {});
+  errEl.innerHTML = errs.length
+    ? "Could not add: " + errs.map(([d, msg]) => `${d} (${msg})`).join(", ")
+    : "";
+  if (data.added && data.added.length) $("#bulk-dates").value = "";
+  refresh();
+});
+
+$("#cards").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const { action, date } = btn.dataset;
+  if (action === "remove" && !confirm(`Stop watching ${date} and delete its history?`)) return;
+  const method = action === "remove" ? "DELETE" : "POST";
+  const url = action === "remove" ? `/api/targets/${date}` : `/api/targets/${date}/${action}`;
+  btn.disabled = true;
+  await fetch(url, { method });
+  refresh();
+});
+
+$("#poll-now-btn").addEventListener("click", async () => {
+  const btn = $("#poll-now-btn");
+  btn.disabled = true; btn.textContent = "Polling…";
+  await fetch("/api/poll-now", { method: "POST" });
+  btn.disabled = false; btn.textContent = "Poll now";
+  refresh();
+});
+
+$("#test-notif-btn").addEventListener("click", async () => {
+  const btn = $("#test-notif-btn");
+  btn.disabled = true; btn.textContent = "Sending…";
+  const res = await fetch("/api/test-notification", { method: "POST" });
+  const data = await res.json();
+  alert("Test notification result: " + JSON.stringify(data));
+  btn.disabled = false; btn.textContent = "Send test notification";
+});
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

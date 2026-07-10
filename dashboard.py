@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+"""Visual dashboard for the Acuity haircut availability monitor.
+
+Single process: a background thread runs the same adaptive polling loop as
+`monitor.py --daemon` (importing its functions directly, no duplicated
+logic), while Flask serves a web UI to add/remove watched dates and see live
+status. Notifications (Telegram/email) still fire exactly as configured in
+config.yaml -- the dashboard is for managing *which* dates are being watched
+and *seeing* their status, not a replacement for the alert channels.
+
+Usage:
+    python dashboard.py                       # http://127.0.0.1:5000
+    python dashboard.py --port 8080 --dry-run
+    python dashboard.py --engine=browser
+
+Binds to 127.0.0.1 by default. The mutation endpoints (add/remove/dismiss a
+date, force a poll, send a test notification) have no authentication -- if
+you bind to a non-loopback host, put it behind a reverse proxy with auth, or
+at least a firewall. See README.md's Dashboard section.
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import threading
+import time
+from datetime import date, datetime, timezone
+from typing import Optional
+from zoneinfo import ZoneInfo
+
+from flask import Flask, jsonify, render_template, request
+
+import config as config_mod
+import monitor
+import notifications
+import scheduling
+import state_store
+
+logger = logging.getLogger("haircut_alarm.dashboard")
+
+app = Flask(__name__)
+
+_lock = threading.RLock()
+_cfg: Optional[config_mod.Config] = None
+_secrets: Optional[config_mod.Secrets] = None
+_client = None
+_state: dict = {}
+_wake_event = threading.Event()
+_stop_event = threading.Event()
+
+
+def init_app(config_path: str, engine: str, dry_run: bool, host: str, verbose: bool) -> None:
+    global _cfg, _secrets, _client, _state
+
+    cfg = config_mod.load_config(config_path)
+    if dry_run:
+        cfg.dry_run = True
+    monitor.setup_logging(cfg.log_file, verbose)
+
+    secrets = config_mod.load_secrets()
+    if cfg.channels.telegram and not cfg.dry_run and not (secrets.telegram_bot_token and secrets.telegram_chat_id):
+        logger.warning("channels.telegram is enabled but TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are not set")
+    if cfg.channels.email and not cfg.dry_run and not (secrets.smtp_host and secrets.smtp_user and secrets.smtp_pass and secrets.email_to):
+        logger.warning("channels.email is enabled but SMTP_*/EMAIL_TO are not fully set")
+    if host not in ("127.0.0.1", "localhost") :
+        logger.warning(
+            "dashboard is bound to %s (not loopback) -- its add/remove/poll endpoints have "
+            "no authentication; put this behind a reverse proxy with auth or a firewall.",
+            host,
+        )
+
+    with _lock:
+        _cfg = cfg
+        _secrets = secrets
+        _client = monitor.build_client(engine, cfg)
+        _state = state_store.load_state(cfg.state_file)
+
+
+def _poller_loop() -> None:
+    while not _stop_event.is_set():
+        with _lock:
+            cfg, secrets, client, state = _cfg, _secrets, _client, _state
+        try:
+            monitor.run_once(cfg, secrets, client, state)
+        except Exception:  # noqa: BLE001 - keep the background thread alive
+            logger.exception("unexpected error during background poll; continuing")
+        finally:
+            with _lock:
+                state_store.save_state(cfg.state_file, state)
+
+        with _lock:
+            now = datetime.now(timezone.utc)
+            sleep_seconds = monitor.compute_next_sleep_seconds(cfg, state, now)
+        logger.info("dashboard poller sleeping %ds", sleep_seconds)
+
+        _wake_event.clear()
+        _wake_event.wait(timeout=sleep_seconds)
+
+
+def start_background_thread() -> threading.Thread:
+    t = threading.Thread(target=_poller_loop, name="haircut-poller", daemon=True)
+    t.start()
+    return t
+
+
+def _target_view(date_str: str, tstate: dict, cfg: config_mod.Config, now: datetime) -> dict:
+    target_date = date.fromisoformat(date_str)
+    days_until_target = (target_date - now.date()).days
+
+    measured_open = tstate.get("measured_open_date")
+    estimated_open = tstate.get("estimated_open_date")
+    current_times = sorted(tstate.get("seen_slot_times", []))
+
+    if tstate.get("dismissed"):
+        badge = "dismissed"
+    elif days_until_target < 0:
+        badge = "passed"
+    elif current_times:
+        badge = "slot_available"
+    elif tstate.get("consecutive_failures", 0) >= 3:
+        badge = "failing"
+    elif measured_open:
+        badge = "window_open_no_slot"
+    else:
+        badge = "watching"
+
+    display_times = []
+    if current_times:
+        tz = ZoneInfo(cfg.timezone)
+        for iso in current_times:
+            display_times.append(datetime.fromisoformat(iso).astimezone(tz).strftime("%H:%M"))
+
+    return {
+        "date": date_str,
+        "weekday": target_date.strftime("%a"),
+        "days_until_target": days_until_target,
+        "badge": badge,
+        "estimated_open_date": estimated_open,
+        "measured_open_date": measured_open,
+        "current_times": display_times,
+        "consecutive_failures": tstate.get("consecutive_failures", 0),
+        "window_open_alerted": tstate.get("window_open_alerted", False),
+        "dismissed": bool(tstate.get("dismissed")),
+        "last_alert_ts": tstate.get("last_alert_ts", {}),
+    }
+
+
+@app.route("/")
+def index():
+    return render_template("dashboard.html", business_name=_cfg.business_name if _cfg else "")
+
+
+@app.route("/api/status")
+def api_status():
+    with _lock:
+        cfg, state = _cfg, _state
+        now = datetime.now(timezone.utc)
+        dates = monitor.effective_target_dates(cfg, state)
+        targets = [_target_view(d, state_store.get_target_state(state, d), cfg, now) for d in dates]
+        furthest = state.get("furthest_bookable_date")
+
+    return jsonify(
+        {
+            "now": now.isoformat(),
+            "timezone": cfg.timezone,
+            "business_name": cfg.business_name,
+            "booking_url": cfg.booking_url,
+            "dry_run": cfg.dry_run,
+            "furthest_bookable_date": furthest,
+            "targets": targets,
+        }
+    )
+
+
+@app.route("/api/targets", methods=["POST"])
+def api_add_targets():
+    payload = request.get_json(silent=True) or {}
+    raw = payload.get("dates") or payload.get("date") or ""
+    candidates = [d.strip() for d in raw.replace(",", "\n").splitlines() if d.strip()]
+
+    added, errors = [], {}
+    with _lock:
+        for date_str in candidates:
+            try:
+                monitor.add_target_date(_state, date_str, _cfg)
+                added.append(date_str)
+            except ValueError as exc:
+                errors[date_str] = str(exc)
+        state_store.save_state(_cfg.state_file, _state)
+    _wake_event.set()  # let the poller re-evaluate immediately with the new date(s)
+
+    status = 200 if added else 400
+    return jsonify({"added": added, "errors": errors}), status
+
+
+@app.route("/api/targets/<date_str>", methods=["DELETE"])
+def api_remove_target(date_str: str):
+    with _lock:
+        removed = monitor.remove_target_date(_state, date_str)
+        state_store.save_state(_cfg.state_file, _state)
+    return jsonify({"removed": removed}), (200 if removed else 404)
+
+
+@app.route("/api/targets/<date_str>/dismiss", methods=["POST"])
+def api_dismiss_target(date_str: str):
+    with _lock:
+        tstate = state_store.get_target_state(_state, date_str)
+        tstate["dismissed"] = True
+        state_store.save_state(_cfg.state_file, _state)
+    return jsonify({"dismissed": date_str})
+
+
+@app.route("/api/targets/<date_str>/undismiss", methods=["POST"])
+def api_undismiss_target(date_str: str):
+    with _lock:
+        try:
+            monitor.add_target_date(_state, date_str, _cfg)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        state_store.save_state(_cfg.state_file, _state)
+    _wake_event.set()
+    return jsonify({"undismissed": date_str})
+
+
+@app.route("/api/poll-now", methods=["POST"])
+def api_poll_now():
+    with _lock:
+        monitor.run_once(_cfg, _secrets, _client, _state)
+        state_store.save_state(_cfg.state_file, _state)
+    return jsonify({"polled": True})
+
+
+@app.route("/api/test-notification", methods=["POST"])
+def api_test_notification():
+    text = f"✅ Test notification from the haircut availability dashboard ({_cfg.business_name})."
+    html = f"<p>{text}</p>"
+    results = {}
+    with _lock:
+        cfg, secrets = _cfg, _secrets
+    if cfg.channels.telegram:
+        if secrets.telegram_bot_token and secrets.telegram_chat_id:
+            results["telegram"] = notifications.send_telegram(
+                secrets.telegram_bot_token, secrets.telegram_chat_id, text, dry_run=cfg.dry_run
+            )
+        else:
+            results["telegram"] = "not_configured"
+    if cfg.channels.email:
+        if secrets.smtp_host and secrets.smtp_user and secrets.smtp_pass and secrets.email_to:
+            results["email"] = notifications.send_email(
+                secrets.smtp_host, secrets.smtp_port, secrets.smtp_user, secrets.smtp_pass,
+                secrets.email_to, "Haircut monitor test notification", text, html, dry_run=cfg.dry_run,
+            )
+        else:
+            results["email"] = "not_configured"
+    return jsonify(results)
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--engine", choices=["requests", "browser"], default="requests")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    args = parser.parse_args(argv)
+
+    init_app(args.config, args.engine, args.dry_run, args.host, args.verbose)
+    start_background_thread()
+    app.run(host=args.host, port=args.port, threaded=True)
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())

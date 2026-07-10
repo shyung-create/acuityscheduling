@@ -20,8 +20,16 @@ def test_load_config_minimal(tmp_path):
     assert cfg.poll.hot_minutes == 5
 
 
-def test_load_config_requires_target_dates(tmp_path):
+def test_load_config_allows_empty_target_dates(tmp_path):
+    # The dashboard starts with zero watched dates and adds them at runtime,
+    # persisted into state.json rather than config.yaml.
     path = _write(tmp_path, "timezone: America/Los_Angeles\n")
+    cfg = config_mod.load_config(path)
+    assert cfg.target_dates == []
+
+
+def test_load_config_rejects_non_list_target_dates(tmp_path):
+    path = _write(tmp_path, 'target_dates: "2026-09-26"\n')
     with pytest.raises(ValueError):
         config_mod.load_config(path)
 

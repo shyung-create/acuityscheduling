@@ -244,17 +244,52 @@ def maybe_send_heartbeat(cfg: config_mod.Config, secrets: config_mod.Secrets, st
     state["last_heartbeat_ts"] = now.timestamp()
 
 
+def effective_target_dates(cfg: config_mod.Config, state: dict) -> list[str]:
+    """Dates to watch: config.yaml's seed list, unioned with any dates added
+    at runtime (e.g. via the dashboard) that already have state entries.
+    Lets the dashboard add/remove dates from a running process without a
+    restart -- both it and the CLI daemon read this instead of cfg.target_dates
+    directly."""
+    return sorted(set(cfg.target_dates) | set(state["targets"].keys()))
+
+
+def add_target_date(state: dict, date_str: str, cfg: Optional[config_mod.Config] = None) -> dict:
+    """Start watching a new date. Validates the format and that it's not in
+    the past; raises ValueError otherwise. Returns the (possibly pre-existing)
+    target state, un-dismissing it if it had previously been dismissed. If
+    `cfg` is given, seeds the initial open-date estimate immediately so a UI
+    doesn't have to wait for the first poll to show something."""
+    try:
+        target_date = date.fromisoformat(date_str)
+    except ValueError as exc:
+        raise ValueError(f"'{date_str}' is not a valid YYYY-MM-DD date") from exc
+    if target_date < datetime.now(timezone.utc).date():
+        raise ValueError(f"{date_str} is in the past")
+
+    tstate = state_store.get_target_state(state, date_str)
+    tstate["dismissed"] = False
+    if cfg is not None and tstate.get("estimated_open_date") is None:
+        est = scheduling.initial_open_date_estimate(target_date, cfg.booking_window_months_estimate)
+        tstate["estimated_open_date"] = est.isoformat()
+    return tstate
+
+
+def remove_target_date(state: dict, date_str: str) -> bool:
+    """Fully forget a date (history and all). Returns False if it wasn't tracked."""
+    return state["targets"].pop(date_str, None) is not None
+
+
 def run_once(cfg: config_mod.Config, secrets: config_mod.Secrets, client, state: dict) -> None:
     now = datetime.now(timezone.utc)
     logger.info("poll starting: now=%s UTC (%s)", now.isoformat(), cfg.timezone)
-    for date_str in cfg.target_dates:
+    for date_str in effective_target_dates(cfg, state):
         process_target(date_str, cfg, secrets, client, state, now)
     maybe_send_heartbeat(cfg, secrets, state, now)
 
 
 def compute_next_sleep_seconds(cfg: config_mod.Config, state: dict, now: datetime) -> int:
     intervals = []
-    for date_str in cfg.target_dates:
+    for date_str in effective_target_dates(cfg, state):
         target_date = date.fromisoformat(date_str)
         if now.date() > target_date:
             continue

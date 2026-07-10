@@ -154,6 +154,54 @@ far/near-phase backstop). Set these as repository secrets: `TELEGRAM_BOT_TOKEN`,
 `EMAIL_TO`. The workflow needs `contents: write` permission (already set) to
 commit `state.json` back.
 
+## Deployment mode 3: web dashboard
+
+A visual dashboard for entering the list of target dates and watching their
+status live, instead of hand-editing `config.yaml`.
+
+```bash
+pip install -r requirements-dashboard.txt
+python dashboard.py                 # http://127.0.0.1:5000
+```
+
+One process does both jobs: a background thread runs the same adaptive
+polling loop as `monitor.py`'s daemon mode (far/near/hot/found cadence,
+Telegram/email alerts -- nothing about notifications changes), while Flask
+serves the UI at `/`. It's fine to start with **zero** dates in
+`config.yaml` (`target_dates: []` or the key omitted entirely) and add them
+all from the browser.
+
+What you can do from the page:
+- **Add target date(s)** -- a native date picker for one at a time (click "+
+  Add date" repeatedly to build a list), or paste several at once into the
+  text box (comma- or newline-separated) and hit "Add all". Each date shows
+  inline validation errors (bad format, date in the past).
+- **Watch live status per date** -- a badge (Watching / Window open, no slot
+  / **Slot available!** / Polling failing / Passed / Dismissed), days until
+  the target, the estimated vs. measured booking-window open date, and the
+  actual open times with a direct "Book now" link the moment one appears.
+  The page polls `/api/status` every 15s; there's also a manual **Poll now**
+  button.
+- **Dismiss / re-enable / remove** a date -- dismiss stops alerts without
+  losing history (e.g. you're still deciding), remove deletes it entirely
+  (e.g. you already booked).
+- **Send test notification** -- fires a real (or dry-run, per `dry_run` in
+  config) message through both configured channels so you can confirm
+  Telegram/email are wired up correctly before you need them for real.
+
+Added/removed dates are written straight into `state.json` (not
+`config.yaml`), and the background poller picks them up immediately --
+adding a date wakes it early instead of waiting for the next scheduled poll.
+
+Binds to `127.0.0.1` by default. The add/remove/poll/test-notification
+endpoints have **no authentication**, so if you pass `--host 0.0.0.0` (or
+otherwise expose it beyond your own machine), put it behind a reverse proxy
+with auth or restrict it with a firewall. A `systemd` unit is provided at
+`systemd/haircut-dashboard.service` (edit `User`/`WorkingDirectory`/
+`EnvironmentFile`, then `systemctl enable --now haircut-dashboard`) -- don't
+run it alongside `haircut-alarm.service`, they'd poll independently and
+double up on requests/alerts.
+
 ## Fallback: browser engine
 
 If sustained polling via plain `requests` gets blocked (bot detection,
