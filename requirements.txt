@@ -1,3 +1,7 @@
 requests>=2.31
 python-dateutil>=2.8
 pyyaml>=6.0
+# Windows has no IANA timezone database at the OS level, unlike Linux/macOS,
+# so zoneinfo.ZoneInfo() raises ZoneInfoNotFoundError without this. Scoped to
+# Windows only since Linux/macOS/CI already have the system tz database.
+tzdata>=2024.1; sys_platform == "win32"

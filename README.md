@@ -406,3 +406,10 @@ sample `/month` and `/times` responses matching the documented shapes.
   `auto_stop_machines = false` may have been reverted (e.g. by `fly launch`
   re-running and regenerating `fly.toml`). Re-apply those two settings and
   `fly deploy` again.
+- **`zoneinfo._common.ZoneInfoNotFoundError: No time zone found with key
+  America/Los_Angeles` (Windows only)**: Windows has no IANA timezone
+  database at the OS level, unlike Linux/macOS. `requirements.txt` installs
+  the `tzdata` package on Windows automatically -- if you hit this, your
+  `pip install` predates that fix or ran with a stale environment; re-run
+  `pip install -r requirements.txt` (or `pip install tzdata` directly) inside
+  your venv.
