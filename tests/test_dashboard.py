@@ -39,6 +39,28 @@ channels:
         yield c
 
 
+@pytest.fixture()
+def auth_client(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"""
+target_dates: []
+state_file: "{tmp_path}/state.json"
+log_file: "{tmp_path}/monitor.log"
+dry_run: true
+channels:
+  telegram: false
+  email: false
+"""
+    )
+    monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
+    monkeypatch.setenv("DASHBOARD_USER", "tester")
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "s3cret")
+    dashboard.init_app(str(config_path), "requests", True, "127.0.0.1", False)
+    with dashboard.app.test_client() as c:
+        yield c
+
+
 def future_date(days=90):
     return (date.today() + timedelta(days=days)).isoformat()
 
@@ -131,3 +153,56 @@ def test_index_renders(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert b"Haircut Availability Dashboard" in resp.data or b"Availability Dashboard" in resp.data
+
+
+# --- HTTP Basic Auth (required once bound to a non-loopback host) ---
+
+def test_no_password_configured_means_no_auth_required(client):
+    # The plain `client` fixture never sets DASHBOARD_PASSWORD.
+    resp = client.get("/api/status")
+    assert resp.status_code == 200
+
+
+def test_auth_required_when_password_configured(auth_client):
+    resp = auth_client.get("/api/status")
+    assert resp.status_code == 401
+    assert "WWW-Authenticate" in resp.headers
+
+
+def test_auth_rejects_wrong_credentials(auth_client):
+    resp = auth_client.get("/api/status", auth=("tester", "wrong"))
+    assert resp.status_code == 401
+
+
+def test_auth_accepts_correct_credentials(auth_client):
+    resp = auth_client.get("/api/status", auth=("tester", "s3cret"))
+    assert resp.status_code == 200
+
+
+def test_auth_applies_to_mutation_endpoints_too(auth_client):
+    d = future_date()
+    resp = auth_client.post("/api/targets", json={"date": d})
+    assert resp.status_code == 401
+    resp = auth_client.post("/api/targets", json={"date": d}, auth=("tester", "s3cret"))
+    assert resp.status_code == 200
+
+
+def test_init_app_refuses_non_loopback_host_without_password(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f'target_dates: []\nstate_file: "{tmp_path}/state.json"\nlog_file: "{tmp_path}/monitor.log"\n'
+    )
+    monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    with pytest.raises(SystemExit):
+        dashboard.init_app(str(config_path), "requests", True, "0.0.0.0", False)
+
+
+def test_init_app_allows_non_loopback_host_with_password(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f'target_dates: []\nstate_file: "{tmp_path}/state.json"\nlog_file: "{tmp_path}/monitor.log"\n'
+    )
+    monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "s3cret")
+    dashboard.init_app(str(config_path), "requests", True, "0.0.0.0", False)  # should not raise

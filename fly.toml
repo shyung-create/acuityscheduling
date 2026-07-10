@@ -1,0 +1,27 @@
+# Fly.io app config. Edit `app` to a globally-unique name (or delete the line
+# and let `fly launch` assign one) and `primary_region` to whatever
+# `fly platform regions` shows as closest to you. See README.md's Fly.io
+# deployment section for the full step-by-step.
+app = "CHANGE-ME-haircut-dashboard"
+primary_region = "sjc"
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Both of these matter: this app polls on its own adaptive schedule via a
+  # background thread, not in response to HTTP requests, so Fly must not
+  # scale the machine to zero when idle (the default "scale to zero" behavior
+  # would silently stop your monitoring).
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[mounts]
+  source = "data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

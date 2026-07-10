@@ -193,14 +193,106 @@ Added/removed dates are written straight into `state.json` (not
 `config.yaml`), and the background poller picks them up immediately --
 adding a date wakes it early instead of waiting for the next scheduled poll.
 
-Binds to `127.0.0.1` by default. The add/remove/poll/test-notification
-endpoints have **no authentication**, so if you pass `--host 0.0.0.0` (or
-otherwise expose it beyond your own machine), put it behind a reverse proxy
-with auth or restrict it with a firewall. A `systemd` unit is provided at
-`systemd/haircut-dashboard.service` (edit `User`/`WorkingDirectory`/
-`EnvironmentFile`, then `systemctl enable --now haircut-dashboard`) -- don't
-run it alongside `haircut-alarm.service`, they'd poll independently and
-double up on requests/alerts.
+Binds to `127.0.0.1` by default, no auth needed for pure-local use. If you
+pass `--host` anything other than `127.0.0.1`/`localhost` (exposing it beyond
+your own machine), the dashboard **requires** `DASHBOARD_PASSWORD` to be set
+and refuses to start otherwise -- see "Security" below. A `systemd` unit is
+provided at `systemd/haircut-dashboard.service` (edit
+`User`/`WorkingDirectory`/`EnvironmentFile`, then
+`systemctl enable --now haircut-dashboard`) -- don't run it alongside
+`haircut-alarm.service`, they'd poll independently and double up on
+requests/alerts.
+
+### Security
+
+The dashboard's `/api/targets`, `/api/poll-now`, and `/api/test-notification`
+endpoints mutate state and send real notifications, so they need protecting
+the moment the dashboard is reachable by anyone other than you:
+
+- **Loopback-only (`127.0.0.1`, the default)**: no auth needed, nothing but
+  your own machine can reach it.
+- **Any other `--host`** (LAN, `0.0.0.0`, a public deployment like Fly.io):
+  set `DASHBOARD_USER` (default `admin`) and `DASHBOARD_PASSWORD` as
+  environment variables. All routes then require HTTP Basic Auth, checked
+  with a constant-time comparison. `dashboard.py` refuses to bind to a
+  non-loopback host at all if `DASHBOARD_PASSWORD` isn't set -- this is
+  enforced in code, not just documented, so you can't accidentally expose it
+  unauthenticated.
+- This is HTTP Basic Auth over plain HTTP unless you're behind TLS -- Fly.io
+  terminates TLS for you (`force_https = true` in `fly.toml`), so credentials
+  aren't sent in the clear when deployed there. If you self-host behind
+  something else, put TLS in front of it too (Caddy/nginx/Fly/Cloudflare
+  Tunnel) before treating Basic Auth as sufficient.
+
+## Deployment mode 4: Fly.io (public URL, always-on)
+
+Runs the exact same single-process dashboard (Flask + background poller
+thread) as mode 3, just containerized and hosted on Fly.io so you get a
+public `https://<your-app>.fly.dev` URL without keeping your own machine on.
+
+> Fly.io's free/low-cost allowances and pricing change over time -- verify
+> current terms at [fly.io/docs/about/pricing](https://fly.io/docs/about/pricing)
+> before deploying. The config below sets `min_machines_running = 1` and
+> `auto_stop_machines = false` deliberately: Fly's default "scale to zero
+> when idle" behavior would silently stop the background polling thread,
+> since it doesn't run in response to HTTP requests.
+
+1. **Install flyctl and log in**: see [fly.io/docs/flyctl/install](https://fly.io/docs/flyctl/install/),
+   then `fly auth login`.
+
+2. **Create your config.yaml** (this repo's `config.yaml` is gitignored but
+   *is* picked up by `docker build`'s local build context -- it has no
+   secrets, so it's fine to bake into the image):
+   ```bash
+   cp config.example.yaml config.yaml
+   ```
+   Edit it: set `state_file: "/data/state.json"` and `log_file: "/data/monitor.log"`
+   (the persistent volume mounted at `/data`), and leave `target_dates: []`
+   if you'll add dates from the dashboard UI instead.
+
+3. **Edit `fly.toml`**: change `app = "CHANGE-ME-haircut-dashboard"` to a
+   globally-unique name, and `primary_region` to whatever
+   `fly platform regions` shows as closest to you.
+
+4. **Create the app and its persistent volume** (the volume is what keeps
+   `state.json` -- your watched dates and alert history -- across deploys and
+   restarts; without it every deploy would start from empty state):
+   ```bash
+   fly apps create <your-app-name>
+   fly volumes create data --size 1 --region <your-region>
+   ```
+
+5. **Set secrets** (these become environment variables inside the container,
+   read the same way as `.env` locally). `DASHBOARD_PASSWORD` is mandatory
+   here since the app will be on a public bind (`0.0.0.0`, per the Dockerfile):
+   ```bash
+   fly secrets set \
+     DASHBOARD_PASSWORD='choose-a-real-password' \
+     TELEGRAM_BOT_TOKEN='...' TELEGRAM_CHAT_ID='...' \
+     SMTP_HOST='smtp.gmail.com' SMTP_PORT='587' SMTP_USER='...' SMTP_PASS='...' EMAIL_TO='...'
+   ```
+
+6. **Deploy**:
+   ```bash
+   fly deploy
+   fly open   # or visit https://<your-app-name>.fly.dev
+   ```
+   Log in with `DASHBOARD_USER` (default `admin`) and the password you set.
+
+7. **Watch logs / redeploy after config changes**:
+   ```bash
+   fly logs
+   # after editing config.yaml or code:
+   fly deploy
+   ```
+
+This sandboxed development session could not actually run `docker build` or
+`fly deploy` (no privileged container support here) -- the Dockerfile/fly.toml
+were validated by running the exact command the container uses
+(`python dashboard.py --config config.yaml --host 0.0.0.0 --port 8080`)
+directly against a local `/data` directory and confirming it binds correctly,
+enforces auth, and writes `state.json`/`monitor.log` to the expected paths.
+Do a real `fly deploy` yourself and check `fly logs` before relying on it.
 
 ## Fallback: browser engine
 
@@ -234,10 +326,11 @@ pytest
 Covers: initial-estimate date math (month-end overflow, leap years,
 fractional months), false→true flip detection, furthest-bookable-date
 tracking, slot-set diffing/dedup, alert rate-limiting, time-window
-filtering, adaptive interval phase selection, config loading, and the
-Acuity client's retry/backoff and schema-validation behavior (mocked HTTP,
-no network access needed). `tests/fixtures/` holds sample `/month` and
-`/times` responses matching the documented shapes.
+filtering, adaptive interval phase selection, config loading, the Acuity
+client's retry/backoff and schema-validation behavior, and the dashboard's
+Flask API (add/remove/dismiss dates, HTTP Basic Auth enforcement) via Flask's
+test client -- all mocked, no network access needed. `tests/fixtures/` holds
+sample `/month` and `/times` responses matching the documented shapes.
 
 ## Troubleshooting
 
@@ -261,3 +354,15 @@ no network access needed). `tests/fixtures/` holds sample `/month` and
   workflow has `permissions: contents: write` (set in
   `.github/workflows/monitor.yml`) and that the default `GITHUB_TOKEN` hasn't
   been restricted to read-only at the repo/org level.
+- **`dashboard.py` refuses to start with "Refusing to bind to non-loopback
+  host..."**: expected -- set `DASHBOARD_PASSWORD` (see Security above). This
+  is a hard requirement, not a warning, once `--host` isn't `127.0.0.1`.
+- **Fly.io deploy loses watched dates after a redeploy**: `state.json` isn't
+  on the persistent volume. Confirm `config.yaml`'s `state_file` is
+  `/data/state.json` (matching `fly.toml`'s `[mounts] destination = "/data"`)
+  and that you ran `fly volumes create data ...` before the first deploy.
+- **Fly.io app seems to stop polling after a while**: check `fly status` --
+  if the machine shows as stopped, `min_machines_running = 1` and
+  `auto_stop_machines = false` may have been reverted (e.g. by `fly launch`
+  re-running and regenerating `fly.toml`). Re-apply those two settings and
+  `fly deploy` again.

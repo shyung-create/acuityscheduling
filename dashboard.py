@@ -13,22 +13,26 @@ Usage:
     python dashboard.py --port 8080 --dry-run
     python dashboard.py --engine=browser
 
-Binds to 127.0.0.1 by default. The mutation endpoints (add/remove/dismiss a
-date, force a poll, send a test notification) have no authentication -- if
-you bind to a non-loopback host, put it behind a reverse proxy with auth, or
-at least a firewall. See README.md's Dashboard section.
+Binds to 127.0.0.1 by default, no auth needed for pure-local use. As soon as
+you bind to a non-loopback host (e.g. deploying to Fly.io/a VPS), the
+DASHBOARD_PASSWORD env var becomes REQUIRED -- the mutation endpoints
+(add/remove/dismiss a date, force a poll, send a test notification) would
+otherwise be open to anyone who finds the URL. See README.md's Security /
+Fly.io deployment sections.
 """
 from __future__ import annotations
 
 import argparse
+import hmac
 import logging
+import os
 import threading
 import time
 from datetime import date, datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 import config as config_mod
 import monitor
@@ -47,10 +51,31 @@ _client = None
 _state: dict = {}
 _wake_event = threading.Event()
 _stop_event = threading.Event()
+_dashboard_user = "admin"
+_dashboard_password: Optional[str] = None
+
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+@app.before_request
+def _require_auth():
+    if not _dashboard_password:
+        return None  # no password configured -- fine for loopback-only local use
+    auth = request.authorization
+    ok = (
+        auth is not None
+        and hmac.compare_digest(auth.username or "", _dashboard_user)
+        and hmac.compare_digest(auth.password or "", _dashboard_password)
+    )
+    if not ok:
+        return Response(
+            "Authentication required", 401, {"WWW-Authenticate": 'Basic realm="Haircut Dashboard"'}
+        )
+    return None
 
 
 def init_app(config_path: str, engine: str, dry_run: bool, host: str, verbose: bool) -> None:
-    global _cfg, _secrets, _client, _state
+    global _cfg, _secrets, _client, _state, _dashboard_user, _dashboard_password
 
     cfg = config_mod.load_config(config_path)
     if dry_run:
@@ -62,12 +87,17 @@ def init_app(config_path: str, engine: str, dry_run: bool, host: str, verbose: b
         logger.warning("channels.telegram is enabled but TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are not set")
     if cfg.channels.email and not cfg.dry_run and not (secrets.smtp_host and secrets.smtp_user and secrets.smtp_pass and secrets.email_to):
         logger.warning("channels.email is enabled but SMTP_*/EMAIL_TO are not fully set")
-    if host not in ("127.0.0.1", "localhost") :
-        logger.warning(
-            "dashboard is bound to %s (not loopback) -- its add/remove/poll endpoints have "
-            "no authentication; put this behind a reverse proxy with auth or a firewall.",
-            host,
-        )
+
+    _dashboard_user = os.environ.get("DASHBOARD_USER", "admin")
+    _dashboard_password = os.environ.get("DASHBOARD_PASSWORD")
+    if host not in LOOPBACK_HOSTS:
+        if not _dashboard_password:
+            raise SystemExit(
+                f"Refusing to bind to non-loopback host {host!r} without DASHBOARD_PASSWORD set -- "
+                "the dashboard's add/remove/poll endpoints would otherwise be open to anyone who finds "
+                "the URL. Set DASHBOARD_PASSWORD (and optionally DASHBOARD_USER) and try again."
+            )
+        logger.warning("dashboard is bound to %s (not loopback) -- HTTP Basic Auth is enforced.", host)
 
     with _lock:
         _cfg = cfg
