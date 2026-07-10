@@ -1,0 +1,55 @@
+name: Haircut availability monitor
+
+on:
+  schedule:
+    # GitHub Actions cron granularity is >=5 minutes and can be delayed
+    # significantly under load -- this is NOT precise enough for the "hot"
+    # 5-minute window the daemon mode achieves. Use this for far/near-phase
+    # polling and run the daemon (systemd) locally during the hot window if
+    # you need tighter timing. Adjust freely; every 15 min is a reasonable
+    # default.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: haircut-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run one check
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python monitor.py --once --config config.yaml
+
+      - name: Commit updated state.json
+        run: |
+          if ! git diff --quiet -- state.json; then
+            git config user.name "haircut-monitor-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add state.json
+            git commit -m "chore: update monitor state [skip ci]"
+            git push
+          else
+            echo "state.json unchanged, nothing to commit"
+          fi

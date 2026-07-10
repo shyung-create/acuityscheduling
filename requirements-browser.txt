@@ -1,0 +1,5 @@
+# Optional extra for --engine=browser (only needed if plain `requests`
+# polling gets blocked by bot detection). After installing, also run:
+#   playwright install chromium
+-r requirements.txt
+playwright>=1.40

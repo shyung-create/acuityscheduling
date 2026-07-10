@@ -1,0 +1,68 @@
+import os
+
+import pytest
+
+import config as config_mod
+
+
+def _write(tmp_path, content):
+    path = tmp_path / "config.yaml"
+    path.write_text(content)
+    return str(path)
+
+
+def test_load_config_minimal(tmp_path):
+    path = _write(tmp_path, 'target_dates: ["2026-09-26"]\n')
+    cfg = config_mod.load_config(path)
+    assert cfg.target_dates == ["2026-09-26"]
+    assert cfg.timezone == "America/Los_Angeles"
+    assert cfg.acuity.owner == "dc1e29cb"
+    assert cfg.poll.hot_minutes == 5
+
+
+def test_load_config_requires_target_dates(tmp_path):
+    path = _write(tmp_path, "timezone: America/Los_Angeles\n")
+    with pytest.raises(ValueError):
+        config_mod.load_config(path)
+
+
+def test_load_config_overrides(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+target_dates: ["2026-09-26", "2026-10-03"]
+time_window:
+  start: "09:00"
+  end: "17:00"
+poll:
+  far_hours: 12
+  hot_minutes: 3
+channels:
+  telegram: false
+dry_run: true
+""",
+    )
+    cfg = config_mod.load_config(path)
+    assert cfg.target_dates == ["2026-09-26", "2026-10-03"]
+    assert cfg.time_window.start == "09:00"
+    assert cfg.time_window.enabled is True
+    assert cfg.poll.far_hours == 12
+    assert cfg.poll.hot_minutes == 3
+    assert cfg.channels.telegram is False
+    assert cfg.channels.email is True
+    assert cfg.dry_run is True
+
+
+def test_load_secrets_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "abc123")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    secrets = config_mod.load_secrets()
+    assert secrets.telegram_bot_token == "abc123"
+    assert secrets.telegram_chat_id == "42"
+    assert secrets.smtp_host is None
+
+
+def test_time_window_disabled_when_unset():
+    tw = config_mod.TimeWindow()
+    assert tw.enabled is False

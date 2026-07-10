@@ -1,0 +1,48 @@
+# Copy to config.yaml and edit. Secrets (Telegram token, SMTP password, etc.)
+# go in .env / environment variables, never in this file.
+
+target_dates:
+  - "2026-09-26"
+  # - "2026-10-03"   # you can watch more than one date at once
+
+# Optional filter -- only alert for slots inside this local (shop timezone)
+# window. Leave start/end unset (or omit time_window entirely) for "any time".
+time_window:
+  start: "09:00"
+  end: "18:00"
+
+timezone: America/Los_Angeles
+
+acuity:
+  owner: "dc1e29cb"
+  appointment_type_id: "82222707"
+  calendar_id: "any"
+
+booking_url: "https://esharphair.as.me/schedule/dc1e29cb/appointment/82222707"
+business_name: "E sharp hair"
+
+# Initial guess only, used to seed the polling cadence before any date has
+# been observed to actually open. Once the monitor sees a real false->true
+# flip for a target date, it stores the measured value in state.json and
+# stops relying on this estimate.
+booking_window_months_estimate: 2
+
+poll:
+  far_hours: 6        # more than 3 days before the estimated open date
+  near_minutes: 30     # within 3 days of the estimated open date
+  hot_minutes: 5        # on the estimated open date and the following 24h
+  found_hours: 2        # after a slot has been found and alerted
+  min_minutes: 2         # hard floor -- never poll faster than this
+
+channels:
+  telegram: true
+  email: true
+
+alert_on_removal: false   # also alert when a previously-seen slot disappears
+heartbeat: false            # daily "still watching" message
+alert_rate_limit_seconds: 600  # max 1 alert per channel per 10 minutes
+
+dry_run: false   # true = log what would be sent instead of sending it
+
+state_file: "state.json"
+log_file: "monitor.log"

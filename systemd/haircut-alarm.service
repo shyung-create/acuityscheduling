@@ -1,0 +1,24 @@
+[Unit]
+Description=Acuity haircut appointment availability alarm (daemon mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust User/WorkingDirectory for your machine (e.g. a Raspberry Pi or VPS).
+User=pi
+WorkingDirectory=/home/pi/acuityscheduling
+# EnvironmentFile holds the secrets from .env.example (TELEGRAM_BOT_TOKEN, SMTP_*, etc).
+EnvironmentFile=/home/pi/acuityscheduling/.env
+ExecStart=/home/pi/acuityscheduling/venv/bin/python monitor.py --config config.yaml
+Restart=on-failure
+RestartSec=30
+
+# Basic hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/pi/acuityscheduling
+
+[Install]
+WantedBy=multi-user.target
