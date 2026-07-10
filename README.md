@@ -53,11 +53,22 @@ this is expected, not a bug.
 
 ### 1. Install dependencies
 
+macOS/Linux (bash/zsh):
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+Windows (PowerShell) -- `source` doesn't exist there, use the venv's own activation script instead:
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+If PowerShell blocks the activation script with an execution-policy error, run
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first (only
+affects the current window).
 
 ### 2. Telegram bot (preferred channel)
 
@@ -80,11 +91,24 @@ pip install -r requirements.txt
 
 ```bash
 cp config.example.yaml config.yaml   # edit target_dates, time_window, etc.
-cp .env.example .env                  # fill in secrets, then: set -a; source .env; set +a
+cp .env.example .env                  # then fill in secrets
 ```
 
 Secrets are **only** read from environment variables -- never put a token or
-password in `config.yaml`.
+password in `config.yaml`. Load `.env` into your shell before running
+`monitor.py`/`dashboard.py`:
+
+- macOS/Linux (bash/zsh): `set -a; source .env; set +a`
+- Windows (PowerShell): there's no built-in equivalent -- either set each
+  variable directly (`$env:TELEGRAM_BOT_TOKEN = "..."`) or load the whole
+  file at once:
+  ```powershell
+  Get-Content .env | ForEach-Object {
+      if ($_ -match '^\s*([^#][^=]*)=(.*)$') {
+          [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim())
+      }
+  }
+  ```
 
 ### 5. Test end-to-end
 
