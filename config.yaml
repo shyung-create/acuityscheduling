@@ -2,14 +2,12 @@
 # variables (or GitHub repo secrets for the Actions workflow), never here.
 
 target_dates:
+  - "2026-08-28"   # Friday -- multiple spots already open, watching for new/removed ones
   - "2026-09-18"   # Friday -- watching for a 5:30pm slot
 
-# Only alert for slots inside this local (shop timezone) window, centered on
-# the requested 5:30pm. Widen this in either direction if you'd take a
-# nearby time too, or narrow it to "17:30"/"17:30" for an exact-time-only match.
-time_window:
-  start: "17:00"
-  end: "18:00"
+# No time filter -- applies to every date in target_dates above (this config
+# doesn't support a per-date window yet). Alerts on any open slot, any time.
+time_window: {}
 
 timezone: America/Los_Angeles
 
