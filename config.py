@@ -130,7 +130,10 @@ def load_secrets() -> Secrets:
         telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID"),
         smtp_host=os.environ.get("SMTP_HOST"),
-        smtp_port=int(os.environ.get("SMTP_PORT", "587")),
+        # GitHub Actions' `env:` block sets SMTP_PORT="" (not unset) when the
+        # repo secret isn't configured -- `.get(key, default)` only falls back
+        # on a missing key, not an empty string, so `or` is required here.
+        smtp_port=int(os.environ.get("SMTP_PORT") or "587"),
         smtp_user=os.environ.get("SMTP_USER"),
         smtp_pass=os.environ.get("SMTP_PASS"),
         email_to=os.environ.get("EMAIL_TO"),

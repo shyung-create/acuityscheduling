@@ -74,3 +74,20 @@ def test_load_secrets_from_env(monkeypatch):
 def test_time_window_disabled_when_unset():
     tw = config_mod.TimeWindow()
     assert tw.enabled is False
+
+
+def test_load_secrets_defaults_smtp_port_when_unset(monkeypatch):
+    monkeypatch.delenv("SMTP_PORT", raising=False)
+    assert config_mod.load_secrets().smtp_port == 587
+
+
+def test_load_secrets_defaults_smtp_port_when_empty_string(monkeypatch):
+    # GitHub Actions' `env:` block sets SMTP_PORT="" (not unset) when the
+    # repo secret isn't configured -- this must not crash with a ValueError.
+    monkeypatch.setenv("SMTP_PORT", "")
+    assert config_mod.load_secrets().smtp_port == 587
+
+
+def test_load_secrets_respects_explicit_smtp_port(monkeypatch):
+    monkeypatch.setenv("SMTP_PORT", "2525")
+    assert config_mod.load_secrets().smtp_port == 2525
