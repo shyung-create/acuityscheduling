@@ -181,7 +181,7 @@ def process_target(
             tstate["last_month_map"] = month_map
             return
 
-        slots = scheduling.filter_slots_by_time_window(raw_slots, cfg.time_window, cfg.timezone)
+        slots = scheduling.filter_slots_by_time_window(raw_slots, cfg.time_window_for(date_str), cfg.timezone)
         current_times = {s["time"] for s in slots}
         previous_times = set(tstate["seen_slot_times"])
         new_times, removed_times = state_store.diff_slot_times(previous_times, current_times)

@@ -101,8 +101,8 @@ window -- e.g. pick a date ~5 weeks out for a first real-world check).
 
 | Key | Meaning |
 |---|---|
-| `target_dates` | List of `YYYY-MM-DD` dates to watch |
-| `time_window.start` / `end` | Optional `HH:MM` filter (shop-local time); omit for any time |
+| `target_dates` | List of dates to watch. Each entry is either a plain `"YYYY-MM-DD"` string (uses the default `time_window` below), or a mapping `{date: "YYYY-MM-DD", time_window: {start, end}}` for a per-date override -- see the example below |
+| `time_window.start` / `end` | Default `HH:MM` filter (shop-local time) for any `target_dates` entry that doesn't set its own override; omit for any time |
 | `timezone` | Shop timezone, default `America/Los_Angeles` |
 | `acuity.owner` / `appointment_type_id` / `calendar_id` | Booking-page identifiers, already filled in for E sharp hair |
 | `booking_window_months_estimate` | Initial guess only; monitor self-corrects once it observes reality |
@@ -113,6 +113,22 @@ window -- e.g. pick a date ~5 weeks out for a first real-world check).
 | `alert_rate_limit_seconds` | Max 1 alert per channel per this many seconds (default 600 = 10 min) |
 | `dry_run` | Log instead of sending (also settable via `--dry-run`) |
 | `state_file` / `log_file` | Paths for persisted state / rotating log |
+
+Mixed per-date time-window example:
+
+```yaml
+target_dates:
+  - "2026-08-28"          # any time (falls back to the default time_window)
+  - date: "2026-09-18"     # only this date's own window applies
+    time_window:
+      start: "17:00"
+      end: "18:00"
+
+time_window: {}            # default for entries with no override -- empty = any time
+```
+
+Note the dashboard (mode 3 below) doesn't expose per-date windows in the UI
+yet -- dates added there always use the global default.
 
 ## Deployment mode 1: long-running daemon
 

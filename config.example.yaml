@@ -2,11 +2,17 @@
 # go in .env / environment variables, never in this file.
 
 target_dates:
-  - "2026-09-26"
+  - "2026-09-26"   # plain string = uses the default time_window below
   # - "2026-10-03"   # you can watch more than one date at once
+  # - date: "2026-11-14"   # or give a date its own time_window override:
+  #   time_window:
+  #     start: "17:00"
+  #     end: "18:00"
 
-# Optional filter -- only alert for slots inside this local (shop timezone)
-# window. Leave start/end unset (or omit time_window entirely) for "any time".
+# Default filter, used by any target_dates entry that doesn't set its own
+# time_window override above -- only alert for slots inside this local (shop
+# timezone) window. Leave start/end unset (or omit time_window entirely) for
+# "any time".
 time_window:
   start: "09:00"
   end: "18:00"

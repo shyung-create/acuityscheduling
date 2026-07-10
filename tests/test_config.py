@@ -91,3 +91,81 @@ def test_load_secrets_defaults_smtp_port_when_empty_string(monkeypatch):
 def test_load_secrets_respects_explicit_smtp_port(monkeypatch):
     monkeypatch.setenv("SMTP_PORT", "2525")
     assert config_mod.load_secrets().smtp_port == 2525
+
+
+# --- per-date time_window overrides ---
+
+def test_target_dates_plain_strings_use_default_time_window(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+target_dates:
+  - "2026-08-28"
+time_window:
+  start: "09:00"
+  end: "18:00"
+""",
+    )
+    cfg = config_mod.load_config(path)
+    assert cfg.target_dates == ["2026-08-28"]
+    assert cfg.time_windows == {}
+    window = cfg.time_window_for("2026-08-28")
+    assert (window.start, window.end) == ("09:00", "18:00")
+
+
+def test_target_dates_mapping_entry_gets_own_time_window(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+target_dates:
+  - "2026-08-28"
+  - date: "2026-09-18"
+    time_window:
+      start: "17:00"
+      end: "18:00"
+time_window: {}
+""",
+    )
+    cfg = config_mod.load_config(path)
+    assert cfg.target_dates == ["2026-08-28", "2026-09-18"]
+
+    aug28 = cfg.time_window_for("2026-08-28")
+    assert aug28.enabled is False  # falls back to the empty global default
+
+    sep18 = cfg.time_window_for("2026-09-18")
+    assert (sep18.start, sep18.end) == ("17:00", "18:00")
+    assert sep18.enabled is True
+
+
+def test_target_dates_mapping_entry_without_time_window_uses_default(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+target_dates:
+  - date: "2026-08-28"
+time_window:
+  start: "09:00"
+  end: "18:00"
+""",
+    )
+    cfg = config_mod.load_config(path)
+    window = cfg.time_window_for("2026-08-28")
+    assert (window.start, window.end) == ("09:00", "18:00")
+
+
+def test_target_dates_mapping_entry_missing_date_raises(tmp_path):
+    path = _write(tmp_path, 'target_dates:\n  - time_window: {start: "17:00", end: "18:00"}\n')
+    with pytest.raises(ValueError):
+        config_mod.load_config(path)
+
+
+def test_target_dates_entry_wrong_type_raises(tmp_path):
+    path = _write(tmp_path, "target_dates:\n  - 20260828\n")
+    with pytest.raises(ValueError):
+        config_mod.load_config(path)
+
+
+def test_time_window_for_unknown_date_uses_default():
+    cfg = config_mod.Config(target_dates=["2026-08-28"], time_window=config_mod.TimeWindow(start="09:00", end="18:00"))
+    window = cfg.time_window_for("2099-01-01")
+    assert (window.start, window.end) == ("09:00", "18:00")

@@ -48,7 +48,8 @@ class ChannelsConfig:
 class Config:
     target_dates: list[str]
     timezone: str = "America/Los_Angeles"
-    time_window: TimeWindow = field(default_factory=TimeWindow)
+    time_window: TimeWindow = field(default_factory=TimeWindow)  # default/fallback for dates with no override
+    time_windows: dict[str, TimeWindow] = field(default_factory=dict)  # per-date overrides, keyed by YYYY-MM-DD
     acuity: AcuityConfig = field(
         default_factory=lambda: AcuityConfig(owner="dc1e29cb", appointment_type_id="82222707")
     )
@@ -64,6 +65,9 @@ class Config:
     business_name: str = "E sharp hair"
     alert_rate_limit_seconds: int = 600  # 10 minutes, per spec
 
+    def time_window_for(self, date_str: str) -> TimeWindow:
+        return self.time_windows.get(date_str, self.time_window)
+
 
 @dataclass
 class Secrets:
@@ -74,6 +78,37 @@ class Secrets:
     smtp_user: Optional[str] = None
     smtp_pass: Optional[str] = None
     email_to: Optional[str] = None
+
+
+def _parse_target_dates(raw_list: list) -> tuple[list[str], dict[str, TimeWindow]]:
+    """Each entry in target_dates is either a plain "YYYY-MM-DD" string (uses
+    the global time_window default), or a mapping with its own per-date
+    override:
+
+        target_dates:
+          - "2026-08-28"                       # any time (global default)
+          - date: "2026-09-18"
+            time_window: {start: "17:00", end: "18:00"}
+    """
+    dates: list[str] = []
+    time_windows: dict[str, TimeWindow] = {}
+    for entry in raw_list:
+        if isinstance(entry, str):
+            dates.append(entry)
+        elif isinstance(entry, dict):
+            date_str = entry.get("date")
+            if not date_str:
+                raise ValueError(f"target_dates entry missing 'date': {entry!r}")
+            dates.append(date_str)
+            tw = entry.get("time_window")
+            if tw:
+                time_windows[date_str] = TimeWindow(start=tw.get("start"), end=tw.get("end"))
+        else:
+            raise ValueError(
+                f"target_dates entries must be a 'YYYY-MM-DD' string or a "
+                f"{{date, time_window}} mapping, got: {entry!r}"
+            )
+    return dates, time_windows
 
 
 def load_config(path: str) -> Config:
@@ -91,8 +126,11 @@ def load_config(path: str) -> Config:
     if "target_dates" in raw and not isinstance(raw["target_dates"], list):
         raise ValueError("config.yaml's target_dates must be a list of YYYY-MM-DD strings")
 
+    target_dates, time_windows = _parse_target_dates(raw.get("target_dates") or [])
+
     return Config(
-        target_dates=list(raw.get("target_dates") or []),
+        target_dates=target_dates,
+        time_windows=time_windows,
         timezone=raw.get("timezone", "America/Los_Angeles"),
         time_window=TimeWindow(start=tw.get("start"), end=tw.get("end")),
         acuity=AcuityConfig(
