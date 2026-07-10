@@ -1,0 +1,48 @@
+# Secrets (Telegram token, SMTP password, etc.) go in .env / environment
+# variables (or GitHub repo secrets for the Actions workflow), never here.
+
+target_dates:
+  - "2026-09-18"   # Friday -- watching for a 5:30pm slot
+
+# Only alert for slots inside this local (shop timezone) window, centered on
+# the requested 5:30pm. Widen this in either direction if you'd take a
+# nearby time too, or narrow it to "17:30"/"17:30" for an exact-time-only match.
+time_window:
+  start: "17:00"
+  end: "18:00"
+
+timezone: America/Los_Angeles
+
+acuity:
+  owner: "dc1e29cb"
+  appointment_type_id: "82222707"
+  calendar_id: "any"
+
+booking_url: "https://esharphair.as.me/schedule/dc1e29cb/appointment/82222707"
+business_name: "E sharp hair"
+
+# Initial guess only, used to seed the polling cadence before any date has
+# been observed to actually open. Once the monitor sees a real false->true
+# flip for a target date, it stores the measured value in state.json and
+# stops relying on this estimate.
+booking_window_months_estimate: 2
+
+poll:
+  far_hours: 6        # more than 3 days before the estimated open date
+  near_minutes: 30     # within 3 days of the estimated open date
+  hot_minutes: 5        # on the estimated open date and the following 24h
+  found_hours: 2        # after a slot has been found and alerted
+  min_minutes: 2         # hard floor -- never poll faster than this
+
+channels:
+  telegram: true
+  email: true
+
+alert_on_removal: false   # also alert when a previously-seen slot disappears
+heartbeat: false            # daily "still watching" message
+alert_rate_limit_seconds: 600  # max 1 alert per channel per 10 minutes
+
+dry_run: false   # false = actually send once channel secrets are configured
+
+state_file: "state.json"
+log_file: "monitor.log"
