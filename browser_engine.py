@@ -94,9 +94,11 @@ class BrowserAcuityClient:
         return result["json"]
 
     def get_month(self, year_month: Optional[str] = None) -> dict[str, bool]:
+        # See AcuityClient.get_month's docstring -- the live API wants a full
+        # "YYYY-MM-DD" date for `month`, not a bare "YYYY-MM".
         params = self._base_params()
         if year_month is not None:
-            params["month"] = year_month
+            params["month"] = f"{year_month}-01"
         data = self._fetch_via_browser("/month", params)
         if not isinstance(data, dict) or not data:
             raise AcuitySchemaError(f"/month returned unexpected shape: {type(data).__name__}")

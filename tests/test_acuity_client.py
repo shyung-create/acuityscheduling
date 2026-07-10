@@ -27,9 +27,13 @@ class FakeSession:
     def __init__(self, responses):
         self._responses = list(responses)
         self.calls = 0
+        self.last_params = None
+        self.all_params = []
 
     def get(self, url, params=None, headers=None, timeout=None):
         self.calls += 1
+        self.last_params = params
+        self.all_params.append(params)
         resp = self._responses.pop(0)
         if isinstance(resp, Exception):
             raise resp
@@ -53,6 +57,17 @@ def test_get_month_success():
     client = make_client(session)
     result = client.get_month("2026-09")
     assert result == data
+
+
+def test_get_month_sends_full_date_not_bare_year_month():
+    # Regression test: the live esharphair.as.me API returns HTTP 422
+    # ("must not be before the current month") for a bare "YYYY-MM" month
+    # param -- it needs a full "YYYY-MM-DD" date. Confirmed against the real
+    # API by a user running this outside the network-restricted dev sandbox.
+    session = FakeSession([FakeResponse(200, {"2026-09-01": True})])
+    client = make_client(session)
+    client.get_month("2026-09")
+    assert session.last_params["month"] == "2026-09-01"
 
 
 def test_get_month_rejects_bad_year_month():

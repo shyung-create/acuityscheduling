@@ -116,12 +116,19 @@ class AcuityClient:
         """Fetch the month-view availability map. `year_month` is "YYYY-MM";
         omitting it relies on the API's default (observed to be the current
         month) -- callers that need a specific future month should always
-        pass it explicitly."""
+        pass it explicitly.
+
+        The live API rejects a bare "YYYY-MM" for the `month` query param with
+        a 422 ("must not be before the current month") -- it expects a full
+        "YYYY-MM-DD" date (confirmed against the real esharphair.as.me API),
+        so the first day of the month is sent on the wire while callers keep
+        using the friendlier "YYYY-MM" form.
+        """
         params = self._base_params()
         if year_month is not None:
             if not _YEAR_MONTH_RE.match(year_month):
                 raise ValueError(f"year_month must look like YYYY-MM, got {year_month!r}")
-            params["month"] = year_month
+            params["month"] = f"{year_month}-01"
 
         resp = self._get("/month", params)
         try:
