@@ -9,11 +9,17 @@ polling never needs an inbound endpoint.
 
 ## 1. Create a dedicated user and directory
 
+`--no-create-home` plus a manual `mkdir`/`chown` (rather than
+`useradd --create-home`) avoids `useradd` pre-populating `/opt/acuity-alarm`
+with skeleton dotfiles (`.bashrc`, `.profile`, ...) -- `git clone` refuses to
+clone into a non-empty directory, so `--create-home` here would just make
+the next command fail:
+
 ```bash
-sudo useradd --system --create-home --home-dir /opt/acuity-alarm --shell /usr/sbin/nologin acuityalarm
+sudo useradd --system --no-create-home --home-dir /opt/acuity-alarm --shell /usr/sbin/nologin acuityalarm
+sudo mkdir -p /opt/acuity-alarm
+sudo chown acuityalarm:acuityalarm /opt/acuity-alarm
 sudo -u acuityalarm git clone <this-repo-url> /opt/acuity-alarm
-# or: sudo mkdir -p /opt/acuity-alarm && sudo chown acuityalarm:acuityalarm /opt/acuity-alarm
-#     then copy the repo in as acuityalarm
 ```
 
 ## 2. Create the venv and install dependencies
