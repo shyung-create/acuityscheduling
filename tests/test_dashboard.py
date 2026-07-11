@@ -98,6 +98,23 @@ def test_add_invalid_date_reports_error(client):
     assert "not-a-date" in data["errors"]
 
 
+def test_status_formats_slot_times_with_colonless_utc_offset(client):
+    # Regression test: Acuity's raw slot times look like
+    # "2026-09-26T10:00:00-0700" -- no colon in the UTC offset.
+    # datetime.fromisoformat() only accepts that on Python 3.11+; this must
+    # work on 3.10 (Ubuntu 22.04's default python3) too. Caught live in
+    # production via dashboard._target_view crashing on exactly this format.
+    d = future_date()
+    client.post("/api/targets", json={"date": d})
+    dashboard._state["targets"][d]["seen_slot_times"] = [f"{d}T10:00:00-0700"]
+
+    resp = client.get("/api/status")
+    assert resp.status_code == 200
+    target = resp.get_json()["targets"][0]
+    assert target["current_times"] == ["10:00"]
+    assert target["badge"] == "slot_available"
+
+
 def test_add_past_date_reports_error(client):
     past = (date.today() - timedelta(days=5)).isoformat()
     resp = client.post("/api/targets", json={"date": past})

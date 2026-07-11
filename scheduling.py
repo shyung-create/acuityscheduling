@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
+from dateutil import parser as dateutil_parser
 from dateutil.relativedelta import relativedelta
 
 from config import PollConfig, TimeWindow
@@ -132,7 +133,10 @@ def filter_slots_by_time_window(
 
     kept = []
     for slot in slots:
-        dt = datetime.fromisoformat(slot["time"]).astimezone(tz)
+        # Acuity's slot times ("...-0700", no colon in the offset) aren't
+        # parseable by datetime.fromisoformat() on Python < 3.11 --
+        # dateutil.parser.isoparse handles them on any version.
+        dt = dateutil_parser.isoparse(slot["time"]).astimezone(tz)
         minutes = dt.hour * 60 + dt.minute
         if start_minutes <= minutes <= end_minutes:
             kept.append(slot)

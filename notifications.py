@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import logging
 import smtplib
-from datetime import date, datetime
+from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 import requests
+from dateutil import parser as dateutil_parser
 
 logger = logging.getLogger("haircut_alarm.notifications")
 
@@ -20,7 +21,11 @@ TELEGRAM_API_TEMPLATE = "https://api.telegram.org/bot{token}/sendMessage"
 
 def _format_times(slots: list[dict], tz_name: str) -> str:
     tz = ZoneInfo(tz_name)
-    times = sorted(datetime.fromisoformat(s["time"]).astimezone(tz) for s in slots)
+    # Acuity's slot times look like "2026-08-28T09:00:00-0700" -- no colon in
+    # the UTC offset. datetime.fromisoformat() only accepts that form on
+    # Python 3.11+; Ubuntu 22.04's default python3 is 3.10, where it raises
+    # ValueError. dateutil.parser.isoparse handles it on any version.
+    times = sorted(dateutil_parser.isoparse(s["time"]).astimezone(tz) for s in slots)
     return ", ".join(t.strftime("%H:%M") for t in times)
 
 

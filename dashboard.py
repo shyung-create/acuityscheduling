@@ -32,6 +32,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from dateutil import parser as dateutil_parser
 from flask import Flask, Response, jsonify, render_template, request
 
 import config as config_mod
@@ -169,7 +170,10 @@ def _target_view(date_str: str, tstate: dict, cfg: config_mod.Config, now: datet
     if current_times:
         tz = ZoneInfo(cfg.timezone)
         for iso in current_times:
-            display_times.append(datetime.fromisoformat(iso).astimezone(tz).strftime("%H:%M"))
+            # Same Acuity "-0700"-offset format as notifications.py/
+            # scheduling.py -- datetime.fromisoformat() chokes on it below
+            # Python 3.11 (Ubuntu 22.04's default python3 is 3.10).
+            display_times.append(dateutil_parser.isoparse(iso).astimezone(tz).strftime("%H:%M"))
 
     time_window = monitor.resolve_time_window(cfg, tstate, date_str)
 
