@@ -35,7 +35,7 @@ it.
   all outbound allowed. No other inbound ports -- this service never
   listens for incoming traffic, it only calls out to Acuity and Telegram
   over HTTPS.
-- 1 `VM.Standard.E2.1.Micro` instance running Ubuntu 22.04 Minimal, with
+- 1 `VM.Standard.E2.1.Micro` instance running Ubuntu 22.04, with
   cloud-init creating a `deploy` user (sudo, SSH-key auth only) and
   installing `python3`, `python3-venv`, `python3-pip`. No app code is
   deployed by cloud-init -- that's intentionally left to a separate step.

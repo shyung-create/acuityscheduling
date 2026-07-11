@@ -7,19 +7,17 @@ data "oci_identity_availability_domains" "ads" {
   compartment_id = var.compartment_ocid
 }
 
-data "oci_core_images" "ubuntu_minimal" {
+data "oci_core_images" "ubuntu" {
   compartment_id           = var.compartment_ocid
   operating_system         = "Canonical Ubuntu"
   operating_system_version = "22.04"
   shape                    = "VM.Standard.E2.1.Micro"
   sort_by                  = "TIMECREATED"
   sort_order               = "DESC"
-
-  filter {
-    name   = "display_name"
-    values = ["^.*Minimal.*$"]
-    regex  = true
-  }
+  # A dedicated "Minimal" edition of 22.04 is no longer published for this
+  # shape (confirmed empty against the live API) -- the standard Ubuntu
+  # 22.04 image is used instead. Still comfortably inside the Always Free
+  # boot volume allowance; this was a size preference, not a requirement.
 }
 
 resource "oci_core_instance" "app" {
@@ -39,7 +37,7 @@ resource "oci_core_instance" "app" {
 
   source_details {
     source_type = "image"
-    source_id   = data.oci_core_images.ubuntu_minimal.images[0].id
+    source_id   = data.oci_core_images.ubuntu.images[0].id
   }
 
   metadata = {
