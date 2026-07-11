@@ -1,0 +1,84 @@
+name: Deploy appointment alarm
+
+# Syncs the repo to the OCI instance and restarts the timer. No build step
+# and no container registry -- main.py is an interpreted script, rsync'd
+# straight into place. Secrets (.env) are never handled by this pipeline;
+# see DEPLOY.md for the one-time manual step that puts them on the server.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acuity-alarm-deploy
+  cancel-in-progress: false
+
+env:
+  REMOTE_USER: deploy
+  REMOTE_HOST: ${{ vars.OCI_RESERVED_PUBLIC_IP }}
+  REMOTE_DIR: /opt/acuity-alarm
+  APP_USER: acuityalarm
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up deploy key and known_hosts
+        run: |
+          install -d -m 700 ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$REMOTE_HOST" >> ~/.ssh/known_hosts
+
+      - name: Rsync repo to the server
+        run: |
+          rsync -az --delete \
+            --rsync-path="sudo -u $APP_USER rsync" \
+            -e "ssh -i ~/.ssh/deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts" \
+            --exclude '.git/' \
+            --exclude '.env' \
+            --exclude '__pycache__/' \
+            --exclude '*.pyc' \
+            --exclude 'state.db' \
+            --exclude 'venv/' \
+            --exclude '.requirements.sha256' \
+            ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
+
+      - name: Recreate venv if requirements changed, then restart the timer
+        run: |
+          ssh -i ~/.ssh/deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$REMOTE_USER@$REMOTE_HOST" \
+            "APP_USER='$APP_USER' REMOTE_DIR='$REMOTE_DIR' bash -s" <<'REMOTE_SCRIPT'
+            set -euo pipefail
+            cd "$REMOTE_DIR"
+
+            NEW_HASH=$(sha256sum requirements-appointment-alarm.txt | awk '{print $1}')
+            OLD_HASH=$(sudo -u "$APP_USER" cat .requirements.sha256 2>/dev/null || true)
+
+            if [ "$NEW_HASH" != "$OLD_HASH" ]; then
+              echo "requirements-appointment-alarm.txt changed -- recreating venv"
+              sudo -u "$APP_USER" bash -c "
+                set -euo pipefail
+                cd '$REMOTE_DIR'
+                rm -rf venv
+                python3 -m venv venv
+                venv/bin/pip install --upgrade pip
+                venv/bin/pip install -r requirements-appointment-alarm.txt
+              "
+              echo "$NEW_HASH" | sudo -u "$APP_USER" tee .requirements.sha256 > /dev/null
+            else
+              echo "requirements-appointment-alarm.txt unchanged -- skipping venv rebuild"
+            fi
+
+            sudo systemctl restart acuity-alarm.timer
+          REMOTE_SCRIPT
+
+      - name: Clean up deploy key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
