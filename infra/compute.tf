@@ -53,14 +53,16 @@ resource "oci_core_instance" "app" {
   preserve_boot_volume = false
 }
 
-# The instance's VNIC/private IP, looked up post-creation so the reserved
-# public IP below can attach to it.
+# The instance's VNIC, looked up post-creation so the reserved public IP
+# below can attach to it. oci_core_vnic itself doesn't expose the private
+# IP's OCID -- that requires the separate oci_core_private_ips lookup below,
+# filtered by this VNIC's ID.
 data "oci_core_vnic_attachments" "app" {
   compartment_id = var.compartment_ocid
   instance_id    = oci_core_instance.app.id
 }
 
-data "oci_core_vnic" "app" {
+data "oci_core_private_ips" "app" {
   vnic_id = data.oci_core_vnic_attachments.app.vnic_attachments[0].vnic_id
 }
 
@@ -73,5 +75,5 @@ resource "oci_core_public_ip" "reserved" {
   compartment_id = var.compartment_ocid
   display_name   = "${var.name_prefix}-reserved-ip"
   lifetime       = "RESERVED"
-  private_ip_id  = data.oci_core_vnic.app.private_ip_id
+  private_ip_id  = data.oci_core_private_ips.app.private_ips[0].id
 }
