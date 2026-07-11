@@ -122,15 +122,20 @@ def _poller_loop() -> None:
     while not _stop_event.is_set():
         with _lock:
             cfg, secrets, client, state = _cfg, _secrets, _client, _state
-        try:
-            monitor.run_once(cfg, secrets, client, state)
-        except Exception:  # noqa: BLE001 - keep the background thread alive
-            logger.exception("unexpected error during background poll; continuing")
-        finally:
-            with _lock:
+            # run_once must stay under the same lock as api_poll_now's --
+            # otherwise a request that wakes this loop (e.g. adding a date,
+            # which calls _wake_event.set()) can run concurrently with this
+            # background cycle on the same mutable `state` dict. Both sides
+            # would independently see "no previously-seen slot" and both
+            # send the same alert -- this is exactly how a real deployment
+            # produced a duplicate Telegram message.
+            try:
+                monitor.run_once(cfg, secrets, client, state)
+            except Exception:  # noqa: BLE001 - keep the background thread alive
+                logger.exception("unexpected error during background poll; continuing")
+            finally:
                 state_store.save_state(cfg.state_file, state)
 
-        with _lock:
             now = datetime.now(timezone.utc)
             sleep_seconds = monitor.compute_next_sleep_seconds(cfg, state, now)
         logger.info("dashboard poller sleeping %ds", sleep_seconds)
