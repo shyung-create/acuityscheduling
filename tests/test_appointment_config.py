@@ -17,7 +17,10 @@ def set_required(monkeypatch):
 
 def test_load_config_with_defaults(monkeypatch):
     set_required(monkeypatch)
-    for k in ("POLL_WINDOW_DAYS", "REMINDER_THRESHOLDS_MINUTES", "APPOINTMENT_FAILURE_ALERT_THRESHOLD", "APPOINTMENT_STATE_DB_PATH", "APPOINTMENT_DRY_RUN"):
+    for k in (
+        "POLL_WINDOW_DAYS", "REMINDER_THRESHOLDS_MINUTES", "APPOINTMENT_FAILURE_ALERT_THRESHOLD",
+        "APPOINTMENT_STATE_DB_PATH", "APPOINTMENT_DRY_RUN", "HEARTBEAT_FILE_PATH",
+    ):
         monkeypatch.delenv(k, raising=False)
 
     cfg = load_config()
@@ -27,7 +30,15 @@ def test_load_config_with_defaults(monkeypatch):
     assert cfg.reminder_thresholds_minutes == [1440, 60]
     assert cfg.failure_alert_threshold == 3
     assert cfg.state_db_path == "state.db"
+    assert cfg.heartbeat_file_path == "heartbeat.txt"
     assert cfg.dry_run is False
+
+
+def test_load_config_heartbeat_file_path_override(monkeypatch):
+    set_required(monkeypatch)
+    monkeypatch.setenv("HEARTBEAT_FILE_PATH", "/opt/acuity-alarm/heartbeat.txt")
+    cfg = load_config()
+    assert cfg.heartbeat_file_path == "/opt/acuity-alarm/heartbeat.txt"
 
 
 def test_load_config_missing_required_raises(monkeypatch):

@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+from datetime import datetime, timezone
 
 import appointment_monitor
 import appointment_store
@@ -29,6 +31,18 @@ def setup_logging(verbose: bool) -> None:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
         stream=sys.stdout,
     )
+
+
+def write_heartbeat(path: str) -> None:
+    """Records that a poll cycle completed without crashing. Read only by
+    the independent heartbeat_check.py dead-man's-switch (never by anything
+    in this module or appointment_monitor.py) -- deliberately called after
+    run_cycle returns, not before, so an unhandled exception mid-cycle
+    leaves the heartbeat stale rather than freshening it."""
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as fh:
+        fh.write(datetime.now(timezone.utc).isoformat())
+    os.replace(tmp_path, path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
         events = appointment_monitor.run_cycle(client, conn, cfg)
     finally:
         conn.close()
+
+    write_heartbeat(cfg.heartbeat_file_path)
 
     logger.info("poll cycle complete: %d alert(s) sent", len(events))
     return 0

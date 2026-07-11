@@ -39,8 +39,9 @@ Required for the appointment alarm specifically:
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` -- see the comments already in
   `.env.example`.
 - Leave `POLL_WINDOW_DAYS`, `REMINDER_THRESHOLDS_MINUTES`,
-  `APPOINTMENT_FAILURE_ALERT_THRESHOLD`, `APPOINTMENT_STATE_DB_PATH` at their
-  defaults unless you have a reason to change them.
+  `APPOINTMENT_FAILURE_ALERT_THRESHOLD`, `APPOINTMENT_STATE_DB_PATH`,
+  `HEARTBEAT_FILE_PATH`, `HEARTBEAT_STALE_MINUTES` at their defaults unless
+  you have a reason to change them.
 
 Lock the file down -- it holds live credentials and is read by
 `EnvironmentFile=` as root before systemd drops privileges to `acuityalarm`,
@@ -56,17 +57,44 @@ sudo chmod 600 /opt/acuity-alarm/.env
 
 ```bash
 sudo cp /opt/acuity-alarm/systemd/acuity-alarm.service /opt/acuity-alarm/systemd/acuity-alarm.timer /etc/systemd/system/
+sudo cp /opt/acuity-alarm/systemd/heartbeat-check.service /opt/acuity-alarm/systemd/heartbeat-check.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now acuity-alarm.timer
+sudo systemctl enable --now heartbeat-check.timer
 ```
 
-Do **not** `enable` or `start` `acuity-alarm.service` directly on a
-recurring basis -- the timer is what's enabled; it activates the service on
-schedule. You can still fire one cycle manually at any time with:
+`heartbeat-check.timer` is the dead-man's-switch: every 30 minutes it checks
+whether `acuity-alarm.timer` has completed a cycle recently, over a code
+path that shares nothing with the Acuity/Telegram client `main.py` uses (see
+`RUNBOOK.md`), and sends one Telegram alert if the poller looks stuck. It
+runs on the system `python3`, not the app's venv (it's stdlib-only), so a
+broken venv can't silence it.
+
+Do **not** `enable` or `start` `acuity-alarm.service` / `heartbeat-check.service`
+directly on a recurring basis -- the timers are what's enabled; they
+activate their services on schedule. You can still fire one cycle manually
+at any time with:
 
 ```bash
 sudo systemctl start acuity-alarm.service
+sudo systemctl start heartbeat-check.service
 ```
+
+## 4b. Cap journald so logs can't fill the boot volume
+
+Both services log to journald only -- there's no file-based logging in this
+deployment. Install the provided cap so persistent logs can't slowly eat a
+small Always Free boot volume:
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo cp /opt/acuity-alarm/systemd/journald-acuity-alarm.conf /etc/systemd/journald.conf.d/acuity-alarm.conf
+sudo systemctl restart systemd-journald
+```
+
+This caps persistent journal storage at 200M and runtime (tmpfs) storage at
+50M, system-wide -- fine for a box that runs only this one service. Check
+current usage any time with `journalctl --disk-usage`.
 
 ## 5. Verify
 
@@ -85,6 +113,17 @@ and reminders still work normally from the first run onward.
 If `main.py` exits non-zero (e.g. `ACUITY_API_KEY` missing or wrong),
 `journalctl -u acuity-alarm.service` shows the error, and systemd retries
 per `Restart=on-failure` / `RestartSec=30` in the service unit.
+
+Confirm the dead-man's-switch is wired up too:
+
+```bash
+systemctl status heartbeat-check.timer
+sudo systemctl start heartbeat-check.service   # run it once by hand
+journalctl -u heartbeat-check.service -n 5 --no-pager
+```
+
+It should log `heartbeat-check: OK (N min old)` once `acuity-alarm.timer`
+has completed at least one cycle. See `RUNBOOK.md` if it ever alerts.
 
 ## Updating the poll interval or reminder thresholds
 

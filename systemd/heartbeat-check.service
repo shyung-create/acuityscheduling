@@ -1,0 +1,22 @@
+[Unit]
+Description=Dead-man's-switch check for the Acuity appointment alarm
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Standalone stdlib-only script -- runs on the system python3, not the
+# app's venv, so a broken/missing venv can't also break this check. Do not
+# add [Install]/enable this unit directly -- enable heartbeat-check.timer.
+Type=oneshot
+User=acuityalarm
+Group=acuityalarm
+WorkingDirectory=/opt/acuity-alarm
+EnvironmentFile=/opt/acuity-alarm/.env
+ExecStart=/usr/bin/python3 /opt/acuity-alarm/heartbeat_check.py
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/acuity-alarm
+UMask=0077

@@ -8,6 +8,9 @@ state.json
 *.db
 *.log
 *.log.*
+heartbeat.txt
+heartbeat.txt.tmp
+*.alerted
 
 # Terraform (infra/.terraform.lock.hcl is intentionally NOT ignored -- commit it)
 infra/.terraform/

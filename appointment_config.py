@@ -22,6 +22,7 @@ class AppointmentMonitorConfig:
     reminder_thresholds_minutes: list[int] = field(default_factory=lambda: [1440, 60])
     failure_alert_threshold: int = 3
     state_db_path: str = "state.db"
+    heartbeat_file_path: str = "heartbeat.txt"
     dry_run: bool = False
 
 
@@ -57,5 +58,6 @@ def load_config() -> AppointmentMonitorConfig:
         reminder_thresholds_minutes=_parse_thresholds(os.environ.get("REMINDER_THRESHOLDS_MINUTES") or "1440,60"),
         failure_alert_threshold=int(os.environ.get("APPOINTMENT_FAILURE_ALERT_THRESHOLD") or "3"),
         state_db_path=os.environ.get("APPOINTMENT_STATE_DB_PATH") or "state.db",
+        heartbeat_file_path=os.environ.get("HEARTBEAT_FILE_PATH") or "heartbeat.txt",
         dry_run=bool(os.environ.get("APPOINTMENT_DRY_RUN")),
     )
