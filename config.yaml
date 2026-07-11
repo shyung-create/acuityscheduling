@@ -2,11 +2,8 @@
 # variables (or GitHub repo secrets for the Actions workflow), never here.
 
 target_dates:
-  - "2026-08-28"   # Friday -- multiple spots already open, any time is fine
-  - date: "2026-09-18"   # Friday -- only alert for the 5:30pm-ish window
-    time_window:
-      start: "17:00"
-      end: "18:00"
+  - "2026-08-28"   # Friday -- any time
+  - "2026-09-18"   # Friday -- any time
 
 # Default filter for any target_dates entry that doesn't set its own
 # time_window override above. Empty = any time.
@@ -37,7 +34,7 @@ poll:
 
 channels:
   telegram: true
-  email: true
+  email: false   # no SMTP_* configured -- Telegram only
 
 alert_on_removal: false   # also alert when a previously-seen slot disappears
 heartbeat: false            # daily "still watching" message
