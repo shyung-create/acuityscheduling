@@ -20,3 +20,10 @@ ssh_public_key = "ssh-ed25519 AAAA... you@example.com"
 # name_prefix                = "acuity-alarm"
 # vcn_cidr                   = "10.0.0.0/16"
 # subnet_cidr                = "10.0.1.0/24"
+
+# Opt-in: opens dashboard_port to the whole internet for dashboard.py.
+# Off by default -- an SSH tunnel needs no open port at all. See
+# infra/README.md's "Exposing the dashboard" section before enabling --
+# set DASHBOARD_PASSWORD in .env on the server FIRST.
+# expose_dashboard_publicly = true
+# dashboard_port             = 5000

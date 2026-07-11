@@ -52,3 +52,15 @@ variable "subnet_cidr" {
   type        = string
   default     = "10.0.1.0/24"
 }
+
+variable "expose_dashboard_publicly" {
+  description = "If true, opens dashboard_port to the entire internet (0.0.0.0/0) in the security list, for dashboard.py bound to 0.0.0.0 instead of 127.0.0.1. Off by default -- reaching the dashboard via an SSH tunnel (see infra/README.md) needs no open port at all. Turning this on is only safe once DASHBOARD_PASSWORD is set in .env; dashboard.py itself refuses to bind a non-loopback host without it, but that's an application-layer check -- Terraform will still open the port to everyone regardless, so don't flip this on without the password already in place."
+  type        = bool
+  default     = false
+}
+
+variable "dashboard_port" {
+  description = "TCP port the dashboard listens on. Only opened in the security list if expose_dashboard_publicly = true; must match the --port passed to dashboard.py in systemd/haircut-dashboard.service."
+  type        = number
+  default     = 5000
+}

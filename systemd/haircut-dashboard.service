@@ -7,13 +7,19 @@ Wants=network-online.target
 Type=simple
 # Runs the dashboard AND the polling loop in one process -- do not also run
 # haircut-alarm.service (monitor.py daemon) at the same time, they'd poll
-# independently. Bound to 127.0.0.1 only -- reach it via an SSH tunnel
-# (see RUNBOOK.md / the repo's deploy notes), not a publicly open port.
+# independently.
+#
+# Bound to 0.0.0.0 -- reachable from the internet on --port below, gated by
+# DASHBOARD_PASSWORD (application-layer only, no TLS -- see
+# infra/README.md). This requires infra/'s expose_dashboard_publicly = true
+# and DASHBOARD_PASSWORD set in .env; dashboard.py refuses to start
+# otherwise. If you'd rather not expose it, change --host back to
+# 127.0.0.1 and use an SSH tunnel instead (no infra change needed for that).
 User=acuityalarm
 Group=acuityalarm
 WorkingDirectory=/opt/acuity-alarm
 EnvironmentFile=/opt/acuity-alarm/.env
-ExecStart=/opt/acuity-alarm/venv/bin/python dashboard.py --config config.yaml --host 127.0.0.1 --port 5000
+ExecStart=/opt/acuity-alarm/venv/bin/python dashboard.py --config config.yaml --host 0.0.0.0 --port 5000
 Restart=on-failure
 RestartSec=30
 

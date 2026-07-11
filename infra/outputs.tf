@@ -13,6 +13,11 @@ output "ssh_command" {
   value       = "ssh ${var.deploy_user}@${oci_core_public_ip.reserved.ip_address}"
 }
 
+output "dashboard_url" {
+  description = "Only meaningful if expose_dashboard_publicly = true -- null otherwise (the dashboard isn't reachable except via SSH tunnel)."
+  value       = var.expose_dashboard_publicly ? "http://${oci_core_public_ip.reserved.ip_address}:${var.dashboard_port}" : null
+}
+
 output "vcn_id" {
   value = oci_core_vcn.this.id
 }

@@ -1,8 +1,15 @@
 # One VCN, one public subnet, an internet gateway, and a security list that
-# allows inbound SSH only (from cidr_ssh_allowed) and all outbound. This
-# service never accepts incoming traffic -- it polls Acuity and posts to
-# Telegram over outbound HTTPS -- so there is deliberately no port 443/80
-# ingress rule, no load balancer, and no public listener of any kind.
+# allows inbound SSH only (from cidr_ssh_allowed) and all outbound. The
+# polling side of this project never accepts incoming traffic -- it polls
+# Acuity and posts to Telegram over outbound HTTPS -- so there is no
+# port 443/80 rule and no load balancer.
+#
+# The one opt-in exception: if expose_dashboard_publicly = true,
+# dashboard.py's web UI is opened on dashboard_port to 0.0.0.0/0. That's a
+# real listener with only an application-level password (DASHBOARD_PASSWORD)
+# protecting it, over plain HTTP (no domain here, so no easy path to a real
+# TLS cert) -- an accepted tradeoff for a low-stakes personal dashboard, not
+# the default posture of this stack.
 
 resource "oci_core_vcn" "this" {
   compartment_id = var.compartment_ocid
@@ -44,6 +51,21 @@ resource "oci_core_security_list" "public" {
     tcp_options {
       min = 22
       max = 22
+    }
+  }
+
+  dynamic "ingress_security_rules" {
+    for_each = var.expose_dashboard_publicly ? [1] : []
+    content {
+      protocol    = "6" # TCP
+      source      = "0.0.0.0/0"
+      source_type = "CIDR_BLOCK"
+      description = "Dashboard (dashboard.py) -- open to the internet, gated by DASHBOARD_PASSWORD at the application layer, not by source IP like SSH"
+
+      tcp_options {
+        min = var.dashboard_port
+        max = var.dashboard_port
+      }
     }
   }
 

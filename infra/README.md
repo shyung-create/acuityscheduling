@@ -32,9 +32,11 @@ it.
 
 - 1 VCN, 1 public subnet, 1 internet gateway, 1 route table
 - 1 security list: inbound TCP/22 from `var.cidr_ssh_allowed` only,
-  all outbound allowed. No other inbound ports -- this service never
-  listens for incoming traffic, it only calls out to Acuity and Telegram
-  over HTTPS.
+  all outbound allowed. No other inbound ports by default -- the polling
+  tools never listen for incoming traffic themselves, they only call out to
+  Acuity and Telegram over HTTPS. If you're running `dashboard.py` and want
+  it reachable without an SSH tunnel, set `expose_dashboard_publicly = true`
+  (off by default) -- see "Exposing the dashboard" below.
 - 1 `VM.Standard.E2.1.Micro` instance running Ubuntu 22.04, with
   cloud-init creating a `deploy` user (sudo, SSH-key auth only) and
   installing `python3`, `python3-venv`, `python3-pip`. No app code is
@@ -74,6 +76,35 @@ If `terraform apply` fails with an out-of-host-capacity error for
 -- try a different `availability_domain_index`, or retry later. Always Free
 shapes are capacity-constrained per AD; this is expected and unrelated to
 the Ampere A1 cut described above.
+
+## Exposing the dashboard (optional, off by default)
+
+By default `dashboard.py` (see `systemd/haircut-dashboard.service`) is meant
+to be reached via an SSH tunnel (`ssh -L 5000:127.0.0.1:5000 ...`) -- no
+open port needed. If you'd rather have a normal always-on URL instead:
+
+1. In `terraform.tfvars`, set:
+   ```hcl
+   expose_dashboard_publicly = true
+   # dashboard_port = 5000   # only if you changed it from the default
+   ```
+2. Set `DASHBOARD_PASSWORD` (and optionally `DASHBOARD_USER`) in `.env` on
+   the server **before** flipping the systemd unit over -- `dashboard.py`
+   refuses to bind a non-loopback host without it, but that's an
+   application-level check; Terraform will open the port to
+   `0.0.0.0/0` regardless of whether you've done this, so do it first.
+3. `terraform apply` to open the port, then update
+   `systemd/haircut-dashboard.service`'s `ExecStart` to `--host 0.0.0.0`
+   (already done in this repo's checked-in version) and
+   `sudo systemctl restart haircut-dashboard.service`.
+4. `terraform output dashboard_url`.
+
+This is plain HTTP with only an application password protecting it -- no
+TLS, since there's no domain here to get a real certificate for. Acceptable
+for a low-stakes personal dashboard; know that the password travels
+unencrypted on every login. Turning `expose_dashboard_publicly` back to
+`false` and re-applying closes the port again (also revert the systemd
+unit's `--host` to `127.0.0.1`).
 
 ## Destroying
 
