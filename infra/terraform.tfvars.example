@@ -1,0 +1,22 @@
+# Copy to terraform.tfvars and fill in. Never commit the real file --
+# terraform.tfvars is already gitignored.
+
+compartment_ocid = "ocid1.compartment.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+region           = "us-ashburn-1"
+
+# Restrict this to your own IP (or a small range), never 0.0.0.0/0 -- it's
+# the only inbound rule this stack creates. Find your current IP with e.g.
+# `curl -s ifconfig.me` and append /32.
+cidr_ssh_allowed = "203.0.113.4/32"
+
+# Contents of your SSH public key, not a path to it.
+ssh_public_key = "ssh-ed25519 AAAA... you@example.com"
+# Or, to read it from a file instead of pasting it here:
+# ssh_public_key = file("~/.ssh/id_ed25519.pub")
+
+# Optional -- defaults shown.
+# availability_domain_index = 0
+# deploy_user               = "deploy"
+# name_prefix                = "acuity-alarm"
+# vcn_cidr                   = "10.0.0.0/16"
+# subnet_cidr                = "10.0.1.0/24"

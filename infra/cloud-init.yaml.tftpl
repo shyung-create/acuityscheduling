@@ -1,0 +1,24 @@
+#cloud-config
+# Bootstraps SSH/deploy access and the Python toolchain only. Does not
+# install or configure the appointment alarm itself -- that's a separate
+# deploy step (see the repo's SETUP.md), kept out of Terraform/cloud-init so
+# app releases and infrastructure changes stay independent.
+
+users:
+  - name: ${deploy_user}
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+package_update: true
+
+packages:
+  - python3
+  - python3-venv
+  - python3-pip
+
+runcmd:
+  - "echo 'cloud-init: ${deploy_user} user and Python 3 toolchain ready' > /var/log/acuity-alarm-cloud-init.log"

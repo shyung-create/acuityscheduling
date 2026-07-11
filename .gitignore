@@ -5,5 +5,14 @@ venv/
 .venv/
 .env
 state.json
+*.db
 *.log
 *.log.*
+
+# Terraform (infra/.terraform.lock.hcl is intentionally NOT ignored -- commit it)
+infra/.terraform/
+infra/terraform.tfvars
+infra/*.tfstate
+infra/*.tfstate.*
+infra/crash.log
+infra/crash.*.log
