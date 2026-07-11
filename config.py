@@ -36,6 +36,7 @@ class PollConfig:
     hot_minutes: float = 5
     found_hours: float = 2
     min_minutes: float = 2  # hard floor, never poll faster than this
+    fixed_minutes: Optional[float] = None  # if set, poll at this flat interval, ignoring far/near/hot/found phases
 
 
 @dataclass
@@ -145,6 +146,9 @@ def load_config(path: str) -> Config:
             hot_minutes=float(poll_raw.get("hot_minutes", 5)),
             found_hours=float(poll_raw.get("found_hours", 2)),
             min_minutes=float(poll_raw.get("min_minutes", 2)),
+            fixed_minutes=(
+                float(poll_raw["fixed_minutes"]) if poll_raw.get("fixed_minutes") is not None else None
+            ),
         ),
         channels=ChannelsConfig(
             telegram=bool(channels_raw.get("telegram", True)),

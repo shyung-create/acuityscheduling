@@ -206,3 +206,94 @@ def test_init_app_allows_non_loopback_host_with_password(tmp_path, monkeypatch):
     monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
     monkeypatch.setenv("DASHBOARD_PASSWORD", "s3cret")
     dashboard.init_app(str(config_path), "requests", True, "0.0.0.0", False)  # should not raise
+
+
+# --- /api/settings (poll interval) ---
+
+def test_get_settings_defaults_to_adaptive(client):
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["mode"] == "adaptive"
+    assert data["fixed_minutes"] is None
+    assert data["adaptive"]["far_hours"] == 6
+
+
+def test_set_settings_fixed_mode(client):
+    resp = client.post("/api/settings", json={"mode": "fixed", "minutes": 5})
+    assert resp.status_code == 200
+
+    status = client.get("/api/settings").get_json()
+    assert status["mode"] == "fixed"
+    assert status["fixed_minutes"] == 5
+
+
+def test_set_settings_back_to_adaptive(client):
+    client.post("/api/settings", json={"mode": "fixed", "minutes": 5})
+    resp = client.post("/api/settings", json={"mode": "adaptive"})
+    assert resp.status_code == 200
+    assert client.get("/api/settings").get_json()["mode"] == "adaptive"
+
+
+def test_set_settings_rejects_bad_mode(client):
+    resp = client.post("/api/settings", json={"mode": "sideways"})
+    assert resp.status_code == 400
+
+
+def test_set_settings_rejects_non_numeric_minutes(client):
+    resp = client.post("/api/settings", json={"mode": "fixed", "minutes": "soon"})
+    assert resp.status_code == 400
+
+
+def test_set_settings_rejects_non_positive_minutes(client):
+    resp = client.post("/api/settings", json={"mode": "fixed", "minutes": 0})
+    assert resp.status_code == 400
+
+
+# --- per-date time_window via the API ---
+
+def test_add_target_with_time_window(client):
+    d = future_date()
+    resp = client.post("/api/targets", json={"date": d, "time_window": {"start": "17:00", "end": "18:00"}})
+    assert resp.status_code == 200
+
+    status = client.get("/api/status").get_json()
+    assert status["targets"][0]["time_window"] == {"start": "17:00", "end": "18:00"}
+
+
+def test_add_target_without_time_window_means_any_time(client):
+    d = future_date()
+    client.post("/api/targets", json={"date": d})
+    status = client.get("/api/status").get_json()
+    assert status["targets"][0]["time_window"] is None
+
+
+def test_add_target_time_window_requires_both_start_and_end(client):
+    d = future_date()
+    resp = client.post("/api/targets", json={"date": d, "time_window": {"start": "17:00"}})
+    assert resp.status_code == 400
+
+
+def test_edit_time_window_on_existing_target(client):
+    d = future_date()
+    client.post("/api/targets", json={"date": d})
+    resp = client.post(f"/api/targets/{d}/time-window", json={"time_window": {"start": "09:00", "end": "12:00"}})
+    assert resp.status_code == 200
+
+    status = client.get("/api/status").get_json()
+    assert status["targets"][0]["time_window"] == {"start": "09:00", "end": "12:00"}
+
+
+def test_edit_time_window_to_any_time(client):
+    d = future_date()
+    client.post("/api/targets", json={"date": d, "time_window": {"start": "17:00", "end": "18:00"}})
+    resp = client.post(f"/api/targets/{d}/time-window", json={"time_window": {}})
+    assert resp.status_code == 200
+
+    status = client.get("/api/status").get_json()
+    assert status["targets"][0]["time_window"] is None
+
+
+def test_edit_time_window_on_unknown_date_404s(client):
+    resp = client.post("/api/targets/2099-01-01/time-window", json={"time_window": {}})
+    assert resp.status_code == 404

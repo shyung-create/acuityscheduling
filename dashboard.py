@@ -74,12 +74,16 @@ def _require_auth():
     return None
 
 
-def init_app(config_path: str, engine: str, dry_run: bool, host: str, verbose: bool) -> None:
+def init_app(
+    config_path: str, engine: str, dry_run: bool, host: str, verbose: bool, interval: Optional[float] = None
+) -> None:
     global _cfg, _secrets, _client, _state, _dashboard_user, _dashboard_password
 
     cfg = config_mod.load_config(config_path)
     if dry_run:
         cfg.dry_run = True
+    if interval is not None:
+        cfg.poll.fixed_minutes = interval
     monitor.setup_logging(cfg.log_file, verbose)
 
     secrets = config_mod.load_secrets()
@@ -104,6 +108,13 @@ def init_app(config_path: str, engine: str, dry_run: bool, host: str, verbose: b
         _secrets = secrets
         _client = monitor.build_client(engine, cfg)
         _state = state_store.load_state(cfg.state_file)
+
+    fixed_minutes = monitor.get_effective_fixed_minutes(_cfg, _state)
+    if fixed_minutes is not None:
+        logger.info(
+            "fixed poll interval active: every %s minutes (adaptive far/near/hot/found schedule disabled)",
+            fixed_minutes,
+        )
 
 
 def _poller_loop() -> None:
@@ -160,6 +171,8 @@ def _target_view(date_str: str, tstate: dict, cfg: config_mod.Config, now: datet
         for iso in current_times:
             display_times.append(datetime.fromisoformat(iso).astimezone(tz).strftime("%H:%M"))
 
+    time_window = monitor.resolve_time_window(cfg, tstate, date_str)
+
     return {
         "date": date_str,
         "weekday": target_date.strftime("%a"),
@@ -172,6 +185,7 @@ def _target_view(date_str: str, tstate: dict, cfg: config_mod.Config, now: datet
         "window_open_alerted": tstate.get("window_open_alerted", False),
         "dismissed": bool(tstate.get("dismissed")),
         "last_alert_ts": tstate.get("last_alert_ts", {}),
+        "time_window": {"start": time_window.start, "end": time_window.end} if time_window.enabled else None,
     }
 
 
@@ -202,17 +216,33 @@ def api_status():
     )
 
 
+def _validate_time_window_dict(tw: dict) -> dict:
+    """Normalizes a {"start": .., "end": ..} dict, raising ValueError if only
+    one side is given. {} (or both blank) means "any time"."""
+    start, end = tw.get("start") or None, tw.get("end") or None
+    if bool(start) != bool(end):
+        raise ValueError("time_window needs both start and end, or neither (for any time)")
+    return {"start": start, "end": end} if start else {}
+
+
 @app.route("/api/targets", methods=["POST"])
 def api_add_targets():
     payload = request.get_json(silent=True) or {}
     raw = payload.get("dates") or payload.get("date") or ""
     candidates = [d.strip() for d in raw.replace(",", "\n").splitlines() if d.strip()]
 
+    time_window = None  # None = don't set an override, leave any existing one untouched
+    if "time_window" in payload:
+        try:
+            time_window = _validate_time_window_dict(payload["time_window"] or {})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     added, errors = [], {}
     with _lock:
         for date_str in candidates:
             try:
-                monitor.add_target_date(_state, date_str, _cfg)
+                monitor.add_target_date(_state, date_str, _cfg, time_window=time_window)
                 added.append(date_str)
             except ValueError as exc:
                 errors[date_str] = str(exc)
@@ -221,6 +251,24 @@ def api_add_targets():
 
     status = 200 if added else 400
     return jsonify({"added": added, "errors": errors}), status
+
+
+@app.route("/api/targets/<date_str>/time-window", methods=["POST"])
+def api_set_target_time_window(date_str: str):
+    payload = request.get_json(silent=True) or {}
+    try:
+        time_window = _validate_time_window_dict(payload.get("time_window") or {})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    with _lock:
+        if date_str not in _state["targets"]:
+            return jsonify({"error": f"{date_str} is not being watched"}), 404
+        tstate = state_store.get_target_state(_state, date_str)
+        tstate["time_window_override"] = time_window  # always explicit here, even {} ("any time")
+        state_store.save_state(_cfg.state_file, _state)
+    _wake_event.set()
+    return jsonify({"date": date_str, "time_window": time_window or None})
 
 
 @app.route("/api/targets/<date_str>", methods=["DELETE"])
@@ -250,6 +298,49 @@ def api_undismiss_target(date_str: str):
         state_store.save_state(_cfg.state_file, _state)
     _wake_event.set()
     return jsonify({"undismissed": date_str})
+
+
+@app.route("/api/settings", methods=["GET"])
+def api_get_settings():
+    with _lock:
+        cfg, state = _cfg, _state
+        fixed_minutes = monitor.get_effective_fixed_minutes(cfg, state)
+    return jsonify(
+        {
+            "mode": "fixed" if fixed_minutes is not None else "adaptive",
+            "fixed_minutes": fixed_minutes,
+            "min_minutes": cfg.poll.min_minutes,
+            "adaptive": {
+                "far_hours": cfg.poll.far_hours,
+                "near_minutes": cfg.poll.near_minutes,
+                "hot_minutes": cfg.poll.hot_minutes,
+                "found_hours": cfg.poll.found_hours,
+            },
+        }
+    )
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_update_settings():
+    payload = request.get_json(silent=True) or {}
+    mode = payload.get("mode")
+
+    with _lock:
+        if mode == "adaptive":
+            monitor.set_fixed_minutes_override(_state, None)
+        elif mode == "fixed":
+            try:
+                minutes = float(payload.get("minutes"))
+            except (TypeError, ValueError):
+                return jsonify({"error": "minutes must be a number"}), 400
+            if minutes <= 0:
+                return jsonify({"error": "minutes must be positive"}), 400
+            monitor.set_fixed_minutes_override(_state, minutes)
+        else:
+            return jsonify({"error": "mode must be 'adaptive' or 'fixed'"}), 400
+        state_store.save_state(_cfg.state_file, _state)
+    _wake_event.set()  # apply the new cadence immediately instead of waiting out the old sleep
+    return jsonify({"ok": True})
 
 
 @app.route("/api/poll-now", methods=["POST"])
@@ -292,10 +383,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument(
+        "--interval", type=float, metavar="MINUTES",
+        help="poll at this fixed interval (minutes) instead of the adaptive far/near/hot/found "
+             "schedule. Overrides poll.fixed_minutes in config.yaml if both are set.",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
-    init_app(args.config, args.engine, args.dry_run, args.host, args.verbose)
+    init_app(args.config, args.engine, args.dry_run, args.host, args.verbose, args.interval)
     start_background_thread()
     app.run(host=args.host, port=args.port, threaded=True)
     return 0

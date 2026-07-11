@@ -181,7 +181,7 @@ def process_target(
             tstate["last_month_map"] = month_map
             return
 
-        slots = scheduling.filter_slots_by_time_window(raw_slots, cfg.time_window_for(date_str), cfg.timezone)
+        slots = scheduling.filter_slots_by_time_window(raw_slots, resolve_time_window(cfg, tstate, date_str), cfg.timezone)
         current_times = {s["time"] for s in slots}
         previous_times = set(tstate["seen_slot_times"])
         new_times, removed_times = state_store.diff_slot_times(previous_times, current_times)
@@ -253,12 +253,23 @@ def effective_target_dates(cfg: config_mod.Config, state: dict) -> list[str]:
     return sorted(set(cfg.target_dates) | set(state["targets"].keys()))
 
 
-def add_target_date(state: dict, date_str: str, cfg: Optional[config_mod.Config] = None) -> dict:
+def add_target_date(
+    state: dict,
+    date_str: str,
+    cfg: Optional[config_mod.Config] = None,
+    time_window: Optional[dict] = None,
+) -> dict:
     """Start watching a new date. Validates the format and that it's not in
     the past; raises ValueError otherwise. Returns the (possibly pre-existing)
     target state, un-dismissing it if it had previously been dismissed. If
     `cfg` is given, seeds the initial open-date estimate immediately so a UI
-    doesn't have to wait for the first poll to show something."""
+    doesn't have to wait for the first poll to show something.
+
+    `time_window`, if given (e.g. {"start": "17:00", "end": "18:00"}, or {}
+    for "any time"), is stored as a per-date override that takes precedence
+    over config.yaml's time_window/time_windows -- see resolve_time_window().
+    Passing None (the default) leaves any existing override untouched.
+    """
     try:
         target_date = date.fromisoformat(date_str)
     except ValueError as exc:
@@ -268,6 +279,8 @@ def add_target_date(state: dict, date_str: str, cfg: Optional[config_mod.Config]
 
     tstate = state_store.get_target_state(state, date_str)
     tstate["dismissed"] = False
+    if time_window is not None:
+        tstate["time_window_override"] = time_window
     if cfg is not None and tstate.get("estimated_open_date") is None:
         est = scheduling.initial_open_date_estimate(target_date, cfg.booking_window_months_estimate)
         tstate["estimated_open_date"] = est.isoformat()
@@ -279,6 +292,32 @@ def remove_target_date(state: dict, date_str: str) -> bool:
     return state["targets"].pop(date_str, None) is not None
 
 
+def resolve_time_window(cfg: config_mod.Config, tstate: dict, date_str: str) -> config_mod.TimeWindow:
+    """A per-date override stored in state.json (e.g. set via the dashboard)
+    takes precedence over config.yaml's time_window/time_windows. The key's
+    mere presence (even an empty {} meaning "any time") counts as an
+    override -- its absence means "fall back to config.yaml"."""
+    if "time_window_override" in tstate:
+        override = tstate["time_window_override"] or {}
+        return config_mod.TimeWindow(start=override.get("start"), end=override.get("end"))
+    return cfg.time_window_for(date_str)
+
+
+def get_effective_fixed_minutes(cfg: config_mod.Config, state: dict) -> Optional[float]:
+    """A poll-interval override saved in state.json (e.g. set via the
+    dashboard's settings panel) takes precedence over config.yaml's
+    poll.fixed_minutes / the --interval CLI flag -- same override-key-presence
+    rule as resolve_time_window."""
+    if "poll_fixed_minutes_override" in state:
+        return state["poll_fixed_minutes_override"]
+    return cfg.poll.fixed_minutes
+
+
+def set_fixed_minutes_override(state: dict, minutes: Optional[float]) -> None:
+    """None means "explicitly adaptive", overriding any config.yaml/CLI fixed_minutes."""
+    state["poll_fixed_minutes_override"] = minutes
+
+
 def run_once(cfg: config_mod.Config, secrets: config_mod.Secrets, client, state: dict) -> None:
     now = datetime.now(timezone.utc)
     logger.info("poll starting: now=%s UTC (%s)", now.isoformat(), cfg.timezone)
@@ -288,6 +327,15 @@ def run_once(cfg: config_mod.Config, secrets: config_mod.Secrets, client, state:
 
 
 def compute_next_sleep_seconds(cfg: config_mod.Config, state: dict, now: datetime) -> int:
+    fixed_minutes = get_effective_fixed_minutes(cfg, state)
+    if fixed_minutes is not None:
+        # Flat cadence requested (config poll.fixed_minutes, --interval on the
+        # command line, or a runtime override set via the dashboard) -- skip
+        # the adaptive far/near/hot/found schedule entirely and just poll at
+        # this rate, still respecting the hard min_minutes floor so a
+        # too-small value can't hammer the site.
+        return int(round(max(cfg.poll.min_minutes, fixed_minutes) * 60))
+
     intervals = []
     for date_str in effective_target_dates(cfg, state):
         target_date = date.fromisoformat(date_str)
@@ -311,6 +359,13 @@ def compute_next_sleep_seconds(cfg: config_mod.Config, state: dict, now: datetim
 def run_daemon(cfg: config_mod.Config, secrets: config_mod.Secrets, client, state: dict) -> None:
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
     signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+
+    fixed_minutes = get_effective_fixed_minutes(cfg, state)
+    if fixed_minutes is not None:
+        logger.info(
+            "fixed poll interval active: every %s minutes (adaptive far/near/hot/found schedule disabled)",
+            fixed_minutes,
+        )
 
     while not _shutdown_requested:
         try:
@@ -350,12 +405,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="log notifications instead of sending them")
     parser.add_argument("--engine", choices=["requests", "browser"], default="requests")
     parser.add_argument("--dismiss", metavar="YYYY-MM-DD", help="stop alerting for this target date and exit")
+    parser.add_argument(
+        "--interval", type=float, metavar="MINUTES",
+        help="poll at this fixed interval (minutes) in daemon mode, instead of the adaptive "
+             "far/near/hot/found schedule. Overrides poll.fixed_minutes in config.yaml if both are set. "
+             "Example: --interval 5",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
     cfg = config_mod.load_config(args.config)
     if args.dry_run:
         cfg.dry_run = True
+    if args.interval is not None:
+        cfg.poll.fixed_minutes = args.interval
 
     setup_logging(cfg.log_file, args.verbose)
 

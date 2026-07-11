@@ -63,11 +63,22 @@
   }
   .panel h2 { font-size: .95rem; margin: 0 0 .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
   form.add-form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: flex-start; }
-  textarea, input[type=date] {
+  textarea, input[type=date], input[type=time], input[type=number] {
     background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
     padding: .55rem .7rem; font-size: .9rem; font-family: inherit;
   }
+  input[type=number] { width: 4.5em; }
   textarea { flex: 1; min-width: 220px; min-height: 2.4rem; resize: vertical; }
+  .time-window-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; font-size: .9rem; }
+  .interval-row { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+  .interval-row label { display: flex; align-items: center; gap: .4rem; font-size: .9rem; cursor: pointer; }
+  .link-btn {
+    background: none; border: none; color: var(--accent); font-size: .78rem; font-weight: 600;
+    padding: 0; cursor: pointer; text-decoration: underline;
+  }
+  .window-editor { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; font-size: .85rem; }
+  .window-editor-actions { display: flex; gap: .35rem; }
+  .window-editor-actions button { padding: .3rem .55rem; font-size: .76rem; }
   button {
     background: var(--accent); color: #fff; border: none; border-radius: 8px;
     padding: .55rem 1rem; font-size: .9rem; font-weight: 600; cursor: pointer;
@@ -124,6 +135,17 @@
   </header>
 
   <section class="panel">
+    <h2>Poll interval</h2>
+    <div class="interval-row">
+      <label><input type="radio" name="interval-mode" value="adaptive" id="mode-adaptive-radio"> Adaptive (recommended)</label>
+      <label><input type="radio" name="interval-mode" value="fixed" id="mode-fixed-radio"> Fixed, every
+        <input type="number" id="fixed-minutes-input" min="1" step="1"> min</label>
+      <button type="button" id="save-interval-btn" class="secondary">Save</button>
+    </div>
+    <div class="hint" id="interval-status">loading…</div>
+  </section>
+
+  <section class="panel">
     <h2>Add target date(s)</h2>
     <form class="add-form" id="add-form">
       <input type="date" id="date-picker">
@@ -131,7 +153,11 @@
       <textarea id="bulk-dates" placeholder="Or paste multiple dates, one per line or comma-separated: 2026-09-26, 2026-10-03"></textarea>
       <button type="submit">Add all</button>
     </form>
-    <div class="hint">Target dates are typically 2+ months out; the monitor tracks the shop's real booking-window opening automatically once it observes it.</div>
+    <div class="time-window-row">
+      <span>Alert time window (optional):</span>
+      <input type="time" id="tw-start"> <span>to</span> <input type="time" id="tw-end">
+    </div>
+    <div class="hint">Target dates are typically 2+ months out; the monitor tracks the shop's real booking-window opening automatically once it observes it. Leave the time window blank for any time -- it applies to all date(s) added in this submission and can be changed later per date below.</div>
     <div class="error-list" id="add-errors"></div>
   </section>
 
@@ -144,6 +170,8 @@
 <script>
 const $ = (sel) => document.querySelector(sel);
 let bookingUrl = "";
+let lastStatusData = null;
+let editingDate = null;
 
 function badgeLabel(b) {
   return {
@@ -154,6 +182,10 @@ function badgeLabel(b) {
     passed: "Date passed",
     dismissed: "Dismissed",
   }[b] || b;
+}
+
+function windowLabel(tw) {
+  return tw ? `${tw.start}–${tw.end}` : "any time";
 }
 
 function cardHtml(t) {
@@ -167,6 +199,22 @@ function cardHtml(t) {
   const dismissBtn = t.dismissed
     ? `<button class="secondary" data-action="undismiss" data-date="${t.date}">Re-enable</button>`
     : `<button class="secondary" data-action="dismiss" data-date="${t.date}">Dismiss</button>`;
+
+  const windowField = t.date === editingDate
+    ? `<div class="window-editor">
+         <input type="time" class="tw-edit-start" value="${t.time_window ? t.time_window.start : ''}">
+         <span>to</span>
+         <input type="time" class="tw-edit-end" value="${t.time_window ? t.time_window.end : ''}">
+         <div class="window-editor-actions">
+           <button type="button" class="secondary" data-action="save-window" data-date="${t.date}">Save</button>
+           <button type="button" class="secondary" data-action="clear-window" data-date="${t.date}">Any time</button>
+           <button type="button" class="secondary" data-action="cancel-window">Cancel</button>
+         </div>
+       </div>`
+    : `<div class="field"><span class="k">Alert window</span>
+         <span>${windowLabel(t.time_window)} <button type="button" class="link-btn" data-action="edit-window" data-date="${t.date}">edit</button></span>
+       </div>`;
+
   return `
     <div class="card ${t.badge}">
       <div class="card-head">
@@ -177,6 +225,7 @@ function cardHtml(t) {
         <span class="badge ${t.badge}">${badgeLabel(t.badge)}</span>
       </div>
       ${times}
+      ${windowField}
       <div class="field"><span class="k">Estimated open</span><span>${t.estimated_open_date || "—"}</span></div>
       <div class="field"><span class="k">Measured open</span><span>${t.measured_open_date || "not yet observed"}</span></div>
       ${t.consecutive_failures > 0 ? `<div class="field"><span class="k">Consecutive failures</span><span>${t.consecutive_failures}</span></div>` : ""}
@@ -187,9 +236,7 @@ function cardHtml(t) {
     </div>`;
 }
 
-async function refresh() {
-  const res = await fetch("/api/status");
-  const data = await res.json();
+function renderCards(data) {
   bookingUrl = data.booking_url;
   $("#business-name").textContent = data.business_name + " — Availability Dashboard";
   $("#now-line").textContent =
@@ -204,6 +251,29 @@ async function refresh() {
   cards.innerHTML = data.targets.map(cardHtml).join("");
 }
 
+async function refresh() {
+  if (editingDate) return; // don't clobber an open per-date window editor with a periodic refetch
+  const res = await fetch("/api/status");
+  lastStatusData = await res.json();
+  renderCards(lastStatusData);
+}
+
+function rerenderFromCache() {
+  if (lastStatusData) renderCards(lastStatusData);
+}
+
+async function loadSettings() {
+  const res = await fetch("/api/settings");
+  const data = await res.json();
+  $("#mode-adaptive-radio").checked = data.mode === "adaptive";
+  $("#mode-fixed-radio").checked = data.mode === "fixed";
+  if (data.fixed_minutes) $("#fixed-minutes-input").value = data.fixed_minutes;
+  $("#interval-status").textContent = data.mode === "fixed"
+    ? `Currently polling every ${data.fixed_minutes} minute(s), fixed.`
+    : `Currently adaptive: far ${data.adaptive.far_hours}h → near ${data.adaptive.near_minutes}m ` +
+      `→ hot ${data.adaptive.hot_minutes}m → found ${data.adaptive.found_hours}h (based on proximity to each date).`;
+}
+
 $("#add-picker-btn").addEventListener("click", () => {
   const v = $("#date-picker").value;
   if (!v) return;
@@ -216,18 +286,31 @@ $("#add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const dates = $("#bulk-dates").value.trim();
   if (!dates) return;
+
+  const twStart = $("#tw-start").value, twEnd = $("#tw-end").value;
+  const errEl = $("#add-errors");
+  if (!!twStart !== !!twEnd) {
+    errEl.textContent = "Fill in both start and end time, or leave both blank for any time.";
+    return;
+  }
+  const body = { dates };
+  if (twStart) body.time_window = { start: twStart, end: twEnd };
+
   const res = await fetch("/api/targets", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dates }),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
-  const errEl = $("#add-errors");
   const errs = Object.entries(data.errors || {});
   errEl.innerHTML = errs.length
     ? "Could not add: " + errs.map(([d, msg]) => `${d} (${msg})`).join(", ")
     : "";
-  if (data.added && data.added.length) $("#bulk-dates").value = "";
+  if (data.added && data.added.length) {
+    $("#bulk-dates").value = "";
+    $("#tw-start").value = "";
+    $("#tw-end").value = "";
+  }
   refresh();
 });
 
@@ -235,12 +318,60 @@ $("#cards").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
   const { action, date } = btn.dataset;
+
+  if (action === "edit-window") { editingDate = date; rerenderFromCache(); return; }
+  if (action === "cancel-window") { editingDate = null; rerenderFromCache(); return; }
+
+  if (action === "save-window") {
+    const card = btn.closest(".card");
+    const start = card.querySelector(".tw-edit-start").value;
+    const end = card.querySelector(".tw-edit-end").value;
+    if (!!start !== !!end) { alert("Fill in both start and end time, or clear both for any time."); return; }
+    await fetch(`/api/targets/${date}/time-window`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ time_window: start ? { start, end } : {} }),
+    });
+    editingDate = null;
+    refresh();
+    return;
+  }
+  if (action === "clear-window") {
+    await fetch(`/api/targets/${date}/time-window`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ time_window: {} }),
+    });
+    editingDate = null;
+    refresh();
+    return;
+  }
+
   if (action === "remove" && !confirm(`Stop watching ${date} and delete its history?`)) return;
   const method = action === "remove" ? "DELETE" : "POST";
   const url = action === "remove" ? `/api/targets/${date}` : `/api/targets/${date}/${action}`;
   btn.disabled = true;
   await fetch(url, { method });
   refresh();
+});
+
+$("#save-interval-btn").addEventListener("click", async () => {
+  const mode = document.querySelector('input[name="interval-mode"]:checked')?.value || "adaptive";
+  const body = { mode };
+  if (mode === "fixed") {
+    body.minutes = parseFloat($("#fixed-minutes-input").value);
+    if (!body.minutes || body.minutes <= 0) {
+      alert("Enter a positive number of minutes.");
+      return;
+    }
+  }
+  const res = await fetch("/api/settings", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert("Could not save: " + (err.error || "unknown error"));
+    return;
+  }
+  loadSettings();
 });
 
 $("#poll-now-btn").addEventListener("click", async () => {
@@ -261,6 +392,7 @@ $("#test-notif-btn").addEventListener("click", async () => {
 });
 
 refresh();
+loadSettings();
 setInterval(refresh, 15000);
 </script>
 </body>

@@ -39,6 +39,10 @@ poll:
   hot_minutes: 5        # on the estimated open date and the following 24h
   found_hours: 2        # after a slot has been found and alerted
   min_minutes: 2         # hard floor -- never poll faster than this
+  # fixed_minutes: 5      # optional: poll at this flat interval always, ignoring
+                           # the far/near/hot/found phases above. Same effect as
+                           # `--interval 5` on the command line (which takes
+                           # precedence if both are set). Still floored at min_minutes.
 
 channels:
   telegram: true

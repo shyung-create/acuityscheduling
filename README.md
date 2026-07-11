@@ -131,6 +131,7 @@ window -- e.g. pick a date ~5 weeks out for a first real-world check).
 | `acuity.owner` / `appointment_type_id` / `calendar_id` | Booking-page identifiers, already filled in for E sharp hair |
 | `booking_window_months_estimate` | Initial guess only; monitor self-corrects once it observes reality |
 | `poll.far_hours` / `near_minutes` / `hot_minutes` / `found_hours` / `min_minutes` | Adaptive polling cadence (minutes/hours); `min_minutes` is a hard floor |
+| `poll.fixed_minutes` | Optional: poll at this flat interval always, skipping the adaptive schedule above. Same effect as `--interval N` on the command line (which wins if both are set), or the dashboard's "Poll interval" panel (which wins over both once you've set it there) |
 | `channels.telegram` / `channels.email` | Enable/disable each channel independently |
 | `alert_on_removal` | Also alert when a previously-seen slot disappears |
 | `heartbeat` | Send a daily "still watching" message |
@@ -212,16 +213,28 @@ serves the UI at `/`. It's fine to start with **zero** dates in
 all from the browser.
 
 What you can do from the page:
+- **Set the poll interval** -- a "Poll interval" panel lets you pick
+  **Adaptive** (the far/near/hot/found schedule described above, recommended)
+  or **Fixed**, every N minutes, entered directly in the browser -- no CLI
+  flags or YAML editing. Takes effect immediately (wakes the background
+  poller right away) and survives a restart (saved in `state.json`,
+  overriding `config.yaml`'s `poll.fixed_minutes` / the `--interval` flag
+  once you've touched it here).
 - **Add target date(s)** -- a native date picker for one at a time (click "+
   Add date" repeatedly to build a list), or paste several at once into the
   text box (comma- or newline-separated) and hit "Add all". Each date shows
-  inline validation errors (bad format, date in the past).
+  inline validation errors (bad format, date in the past). An optional **Alert
+  time window** (start/end) next to the form applies to whatever date(s) you
+  submit together -- leave both blank for any time.
+- **Edit a date's time window later** -- click "edit" next to "Alert window"
+  on any card to change its start/end (or clear it back to "any time")
+  without re-adding the date.
 - **Watch live status per date** -- a badge (Watching / Window open, no slot
   / **Slot available!** / Polling failing / Passed / Dismissed), days until
-  the target, the estimated vs. measured booking-window open date, and the
-  actual open times with a direct "Book now" link the moment one appears.
-  The page polls `/api/status` every 15s; there's also a manual **Poll now**
-  button.
+  the target, its current alert time window, the estimated vs. measured
+  booking-window open date, and the actual open times with a direct "Book
+  now" link the moment one appears. The page polls `/api/status` every 15s;
+  there's also a manual **Poll now** button.
 - **Dismiss / re-enable / remove** a date -- dismiss stops alerts without
   losing history (e.g. you're still deciding), remove deletes it entirely
   (e.g. you already booked).
@@ -229,9 +242,10 @@ What you can do from the page:
   config) message through both configured channels so you can confirm
   Telegram/email are wired up correctly before you need them for real.
 
-Added/removed dates are written straight into `state.json` (not
-`config.yaml`), and the background poller picks them up immediately --
-adding a date wakes it early instead of waiting for the next scheduled poll.
+Added/removed dates, per-date time-window edits, and the poll-interval
+choice are all written straight into `state.json` (not `config.yaml`), and
+the background poller picks them up immediately -- any of these actions
+wakes it early instead of waiting for the next scheduled poll.
 
 Binds to `127.0.0.1` by default, no auth needed for pure-local use. If you
 pass `--host` anything other than `127.0.0.1`/`localhost` (exposing it beyond
