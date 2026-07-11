@@ -1,0 +1,22 @@
+# Personal data: conversation exports and everything derived from them.
+# Only the scaffold (this .gitignore, AGENTS.md, the empty dir markers, and
+# the initial index.md/log.md templates) is meant to live in git. Actual
+# wiki content lives on the deploy box and syncs to Obsidian separately.
+# (Need the "!dir/**/" re-include too, or git never descends into the
+# ignored directory to find the negated .gitkeep.)
+raw/**
+!raw/**/
+!raw/**/.gitkeep
+
+wiki/entities/**
+!wiki/entities/.gitkeep
+wiki/concepts/**
+!wiki/concepts/.gitkeep
+wiki/summaries/**
+!wiki/summaries/.gitkeep
+wiki/reports/**
+!wiki/reports/.gitkeep
+
+db/*.db
+db/*.db-wal
+db/*.db-shm
