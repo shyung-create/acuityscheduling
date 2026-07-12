@@ -9,12 +9,15 @@ Type=simple
 # haircut-alarm.service (monitor.py daemon) at the same time, they'd poll
 # independently.
 #
-# Bound to 0.0.0.0 -- reachable from the internet on --port below, gated by
-# DASHBOARD_PASSWORD (application-layer only, no TLS -- see
-# infra/README.md). This requires infra/'s expose_dashboard_publicly = true
-# and DASHBOARD_PASSWORD set in .env; dashboard.py refuses to start
-# otherwise. If you'd rather not expose it, change --host back to
-# 127.0.0.1 and use an SSH tunnel instead (no infra change needed for that).
+# Bound to 0.0.0.0 so it's reachable via whichever access path you've set
+# up -- SSH tunnel, Tailscale, or the public internet -- see infra/README.md
+# ("Reaching the dashboard") for all three and their trade-offs. Which
+# interfaces can actually deliver a packet here is controlled by the OCI
+# security list + this box's iptables rules, not by this bind address.
+# DASHBOARD_PASSWORD in .env is required for any of them (dashboard.py
+# refuses to start without it once --host isn't loopback) and stays a cheap
+# extra layer even under Tailscale, where tailnet membership is the real
+# gate.
 User=acuityalarm
 Group=acuityalarm
 WorkingDirectory=/opt/acuity-alarm

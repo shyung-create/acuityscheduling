@@ -77,11 +77,63 @@ If `terraform apply` fails with an out-of-host-capacity error for
 shapes are capacity-constrained per AD; this is expected and unrelated to
 the Ampere A1 cut described above.
 
-## Exposing the dashboard (optional, off by default)
+## Reaching the dashboard
 
-By default `dashboard.py` (see `systemd/haircut-dashboard.service`) is meant
-to be reached via an SSH tunnel (`ssh -L 5000:127.0.0.1:5000 ...`) -- no
-open port needed. If you'd rather have a normal always-on URL instead:
+`dashboard.py`'s systemd unit (`systemd/haircut-dashboard.service`) binds
+`--host 0.0.0.0` so it's reachable on any interface that can actually get a
+packet to it -- which interfaces that is depends on which option below you
+use. Pick one; don't run more than one at a time.
+
+### Option A: SSH tunnel (most restrictive, no setup)
+
+```bash
+ssh -L 5000:127.0.0.1:5000 deploy@<reserved-ip>
+```
+Then browse `http://127.0.0.1:5000` on your own machine. No open port
+anywhere, no Terraform change, nothing to install -- but only works from a
+machine with your SSH key, one tunnel at a time.
+
+### Option B: Tailscale (recommended for regular use from your own devices)
+
+Puts the dashboard on your private WireGuard-based tailnet instead of the
+public internet -- real encryption (unlike Option C's plain HTTP), and no
+port needs to be open to `0.0.0.0/0` at all, since Tailscale traffic doesn't
+arrive via the public IP.
+
+1. On the server:
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   sudo tailscale up
+   ```
+   Open the login URL it prints (on any device already signed into your
+   tailnet) to approve the machine.
+2. This box's default `iptables` ruleset (see `SETUP.md`/`RUNBOOK.md` --
+   Oracle's Ubuntu images ship allowing only SSH by default) blocks the
+   dashboard port even from the tailnet unless you explicitly allow the
+   `tailscale0` interface:
+   ```bash
+   sudo iptables -I INPUT 1 -i tailscale0 -j ACCEPT
+   sudo netfilter-persistent save
+   ```
+3. If you'd previously enabled Option C, revert it (see below) -- Tailscale
+   doesn't need the port open to the public internet.
+4. Find the address: `tailscale ip -4` on the server, or use MagicDNS
+   (`<machine-name>.<tailnet-name>.ts.net`) if enabled in your Tailscale
+   admin console.
+5. From any device enrolled in your tailnet (phone, laptop -- each needs
+   the Tailscale app installed and signed into the same tailnet):
+   `http://<tailscale-ip-or-magicdns-name>:5000`.
+
+`DASHBOARD_PASSWORD` stays required (dashboard.py enforces it for any
+non-loopback bind regardless of which option is in use) -- cheap
+defense-in-depth even though tailnet membership is already the real gate.
+
+Trade-off versus Option C: only devices you've explicitly enrolled in your
+tailnet can reach it -- not literally "any device, any browser." If you
+need to hand access to someone without installing anything on their device,
+that's what Option C is for.
+
+### Option C: Open to the public internet (plain HTTP, least restrictive)
 
 1. In `terraform.tfvars`, set:
    ```hcl
@@ -89,22 +141,19 @@ open port needed. If you'd rather have a normal always-on URL instead:
    # dashboard_port = 5000   # only if you changed it from the default
    ```
 2. Set `DASHBOARD_PASSWORD` (and optionally `DASHBOARD_USER`) in `.env` on
-   the server **before** flipping the systemd unit over -- `dashboard.py`
-   refuses to bind a non-loopback host without it, but that's an
-   application-level check; Terraform will open the port to
-   `0.0.0.0/0` regardless of whether you've done this, so do it first.
-3. `terraform apply` to open the port, then update
-   `systemd/haircut-dashboard.service`'s `ExecStart` to `--host 0.0.0.0`
-   (already done in this repo's checked-in version) and
-   `sudo systemctl restart haircut-dashboard.service`.
+   the server **before** applying -- `dashboard.py` refuses to bind a
+   non-loopback host without it, but that's an application-level check;
+   Terraform will open the port to `0.0.0.0/0` regardless of whether you've
+   done this, so do it first.
+3. `terraform apply` to open the port.
 4. `terraform output dashboard_url`.
 
 This is plain HTTP with only an application password protecting it -- no
-TLS, since there's no domain here to get a real certificate for. Acceptable
-for a low-stakes personal dashboard; know that the password travels
-unencrypted on every login. Turning `expose_dashboard_publicly` back to
-`false` and re-applying closes the port again (also revert the systemd
-unit's `--host` to `127.0.0.1`).
+TLS, since there's no domain here to get a real certificate for. Anyone on
+the internet who finds the URL can attempt to log in; acceptable only if
+you've accepted that trade-off for convenience over Option B. Turning
+`expose_dashboard_publicly` back to `false` and re-applying closes the port
+again.
 
 ## Destroying
 
