@@ -349,7 +349,11 @@ $("#cards").addEventListener("click", async (e) => {
   const method = action === "remove" ? "DELETE" : "POST";
   const url = action === "remove" ? `/api/targets/${date}` : `/api/targets/${date}/${action}`;
   btn.disabled = true;
-  await fetch(url, { method });
+  const res = await fetch(url, { method });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || `Could not ${action} ${date} (HTTP ${res.status}).`);
+  }
   refresh();
 });
 

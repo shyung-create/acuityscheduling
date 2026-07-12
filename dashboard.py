@@ -283,6 +283,21 @@ def api_set_target_time_window(date_str: str):
 @app.route("/api/targets/<date_str>", methods=["DELETE"])
 def api_remove_target(date_str: str):
     with _lock:
+        if date_str in _cfg.target_dates:
+            # effective_target_dates() unions state.json's targets with
+            # config.yaml's seed list on every refresh -- removing a
+            # config.yaml date from state.json alone doesn't stick, it just
+            # gets silently re-added (with a fresh, history-less state) on
+            # the next poll or /api/status call. Refuse clearly instead of
+            # pretending to succeed.
+            return jsonify({
+                "removed": False,
+                "error": (
+                    f"{date_str} is a seed date in config.yaml -- removing it here won't stick, it "
+                    "gets re-added on the next refresh. Use Dismiss to stop alerts instead, or edit "
+                    "config.yaml directly and restart the service to remove it permanently."
+                ),
+            }), 409
         removed = monitor.remove_target_date(_state, date_str)
         state_store.save_state(_cfg.state_file, _state)
     return jsonify({"removed": removed}), (200 if removed else 404)

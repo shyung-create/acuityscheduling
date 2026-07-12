@@ -138,6 +138,55 @@ def test_remove_missing_target_404(client):
     assert resp.status_code == 404
 
 
+@pytest.fixture()
+def seeded_client(tmp_path, monkeypatch):
+    """A config.yaml with a real seed date, to test that Remove can't
+    silently un-remove-then-re-add it via effective_target_dates()'s union
+    with cfg.target_dates -- reproduces a real bug found live in prod."""
+    seed_date = future_date(120)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"""
+target_dates:
+  - "{seed_date}"
+state_file: "{tmp_path}/state.json"
+log_file: "{tmp_path}/monitor.log"
+dry_run: true
+channels:
+  telegram: false
+  email: false
+"""
+    )
+    monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
+    dashboard.init_app(str(config_path), "requests", True, "127.0.0.1", False)
+    with dashboard.app.test_client() as c:
+        yield c, seed_date
+
+
+def test_remove_config_seeded_date_refuses_with_clear_error(seeded_client):
+    client, seed_date = seeded_client
+    resp = client.delete(f"/api/targets/{seed_date}")
+    assert resp.status_code == 409
+    assert resp.get_json()["removed"] is False
+    assert "config.yaml" in resp.get_json()["error"]
+
+    # Still watched afterward -- refusing didn't silently half-delete it.
+    status = client.get("/api/status").get_json()
+    assert [t["date"] for t in status["targets"]] == [seed_date]
+
+
+def test_dismiss_still_works_for_config_seeded_date(seeded_client):
+    # Dismiss (unlike Remove) is the correct way to silence a config.yaml
+    # seed date -- it doesn't touch cfg.target_dates at all.
+    client, seed_date = seeded_client
+    resp = client.post(f"/api/targets/{seed_date}/dismiss")
+    assert resp.status_code == 200
+
+    status = client.get("/api/status").get_json()
+    assert status["targets"][0]["dismissed"] is True
+    assert status["targets"][0]["badge"] == "dismissed"
+
+
 def test_dismiss_and_undismiss(client):
     d = future_date()
     client.post("/api/targets", json={"date": d})
