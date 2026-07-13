@@ -274,6 +274,35 @@ def test_init_app_allows_non_loopback_host_with_password(tmp_path, monkeypatch):
     dashboard.init_app(str(config_path), "requests", True, "0.0.0.0", False)  # should not raise
 
 
+def test_init_app_allows_non_loopback_host_with_trust_network_layer(tmp_path, monkeypatch):
+    # DASHBOARD_TRUST_NETWORK_LAYER is the documented escape hatch for a
+    # Tailscale-only deployment -- no DASHBOARD_PASSWORD needed.
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f'target_dates: []\nstate_file: "{tmp_path}/state.json"\nlog_file: "{tmp_path}/monitor.log"\n'
+    )
+    monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.setenv("DASHBOARD_TRUST_NETWORK_LAYER", "1")
+    dashboard.init_app(str(config_path), "requests", True, "0.0.0.0", False)  # should not raise
+
+    with dashboard.app.test_client() as c:
+        resp = c.get("/api/status")
+        assert resp.status_code == 200  # no auth prompt
+
+
+def test_init_app_still_refuses_without_password_or_trust_flag(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f'target_dates: []\nstate_file: "{tmp_path}/state.json"\nlog_file: "{tmp_path}/monitor.log"\n'
+    )
+    monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.delenv("DASHBOARD_TRUST_NETWORK_LAYER", raising=False)
+    with pytest.raises(SystemExit):
+        dashboard.init_app(str(config_path), "requests", True, "0.0.0.0", False)
+
+
 # --- /api/settings (poll interval) ---
 
 def test_get_settings_defaults_to_adaptive(client):

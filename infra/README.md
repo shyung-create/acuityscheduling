@@ -124,9 +124,16 @@ arrive via the public IP.
    the Tailscale app installed and signed into the same tailnet):
    `http://<tailscale-ip-or-magicdns-name>:5000`.
 
-`DASHBOARD_PASSWORD` stays required (dashboard.py enforces it for any
-non-loopback bind regardless of which option is in use) -- cheap
-defense-in-depth even though tailnet membership is already the real gate.
+dashboard.py normally refuses to bind a non-loopback host without
+`DASHBOARD_PASSWORD` set. If tailnet membership is the only gate you want
+(no separate login prompt), set this in `.env` instead of a password:
+```
+DASHBOARD_TRUST_NETWORK_LAYER=1
+```
+Only do this under Option B -- if the port is ever also open under Option C
+(`0.0.0.0/0`), that setting would leave the dashboard fully unauthenticated
+to the entire internet. `dashboard.py` doesn't know which option is
+actually in effect at the network layer, so this is on you to keep straight.
 
 Trade-off versus Option C: only devices you've explicitly enrolled in your
 tailnet can reach it -- not literally "any device, any browser." If you

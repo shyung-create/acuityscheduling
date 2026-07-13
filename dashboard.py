@@ -95,14 +95,24 @@ def init_app(
 
     _dashboard_user = os.environ.get("DASHBOARD_USER", "admin")
     _dashboard_password = os.environ.get("DASHBOARD_PASSWORD")
+    trust_network_layer = bool(os.environ.get("DASHBOARD_TRUST_NETWORK_LAYER"))
     if host not in LOOPBACK_HOSTS:
-        if not _dashboard_password:
+        if not _dashboard_password and not trust_network_layer:
             raise SystemExit(
                 f"Refusing to bind to non-loopback host {host!r} without DASHBOARD_PASSWORD set -- "
                 "the dashboard's add/remove/poll endpoints would otherwise be open to anyone who finds "
-                "the URL. Set DASHBOARD_PASSWORD (and optionally DASHBOARD_USER) and try again."
+                "the URL. Set DASHBOARD_PASSWORD (and optionally DASHBOARD_USER), or set "
+                "DASHBOARD_TRUST_NETWORK_LAYER=1 if something else (e.g. Tailscale) is the only thing "
+                "meant to gate access here -- see .env.example."
             )
-        logger.warning("dashboard is bound to %s (not loopback) -- HTTP Basic Auth is enforced.", host)
+        if _dashboard_password:
+            logger.warning("dashboard is bound to %s (not loopback) -- HTTP Basic Auth is enforced.", host)
+        else:
+            logger.warning(
+                "dashboard is bound to %s (not loopback) with NO application-layer auth -- "
+                "DASHBOARD_TRUST_NETWORK_LAYER=1 is set, relying entirely on network-level access control.",
+                host,
+            )
 
     with _lock:
         _cfg = cfg
