@@ -61,8 +61,8 @@ def test_cli_interval_flag_sets_fixed_minutes(tmp_path, monkeypatch):
     config_path.write_text(
         f"""
 target_dates: []
-state_file: "{tmp_path}/state.json"
-log_file: "{tmp_path}/monitor.log"
+state_file: "{tmp_path.as_posix()}/state.json"
+log_file: "{tmp_path.as_posix()}/monitor.log"
 dry_run: true
 channels:
   telegram: false
@@ -91,8 +91,8 @@ def test_cli_without_interval_leaves_fixed_minutes_unset(tmp_path, monkeypatch):
     config_path.write_text(
         f"""
 target_dates: []
-state_file: "{tmp_path}/state.json"
-log_file: "{tmp_path}/monitor.log"
+state_file: "{tmp_path.as_posix()}/state.json"
+log_file: "{tmp_path.as_posix()}/monitor.log"
 dry_run: true
 channels:
   telegram: false

@@ -24,8 +24,8 @@ def client(tmp_path, monkeypatch):
     config_path.write_text(
         f"""
 target_dates: []
-state_file: "{tmp_path}/state.json"
-log_file: "{tmp_path}/monitor.log"
+state_file: "{tmp_path.as_posix()}/state.json"
+log_file: "{tmp_path.as_posix()}/monitor.log"
 dry_run: true
 channels:
   telegram: false
@@ -45,8 +45,8 @@ def auth_client(tmp_path, monkeypatch):
     config_path.write_text(
         f"""
 target_dates: []
-state_file: "{tmp_path}/state.json"
-log_file: "{tmp_path}/monitor.log"
+state_file: "{tmp_path.as_posix()}/state.json"
+log_file: "{tmp_path.as_posix()}/monitor.log"
 dry_run: true
 channels:
   telegram: false
@@ -149,8 +149,8 @@ def seeded_client(tmp_path, monkeypatch):
         f"""
 target_dates:
   - "{seed_date}"
-state_file: "{tmp_path}/state.json"
-log_file: "{tmp_path}/monitor.log"
+state_file: "{tmp_path.as_posix()}/state.json"
+log_file: "{tmp_path.as_posix()}/monitor.log"
 dry_run: true
 channels:
   telegram: false
@@ -256,7 +256,7 @@ def test_auth_applies_to_mutation_endpoints_too(auth_client):
 def test_init_app_refuses_non_loopback_host_without_password(tmp_path, monkeypatch):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        f'target_dates: []\nstate_file: "{tmp_path}/state.json"\nlog_file: "{tmp_path}/monitor.log"\n'
+        f'target_dates: []\nstate_file: "{tmp_path.as_posix()}/state.json"\nlog_file: "{tmp_path.as_posix()}/monitor.log"\n'
     )
     monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
     monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
@@ -267,7 +267,7 @@ def test_init_app_refuses_non_loopback_host_without_password(tmp_path, monkeypat
 def test_init_app_allows_non_loopback_host_with_password(tmp_path, monkeypatch):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        f'target_dates: []\nstate_file: "{tmp_path}/state.json"\nlog_file: "{tmp_path}/monitor.log"\n'
+        f'target_dates: []\nstate_file: "{tmp_path.as_posix()}/state.json"\nlog_file: "{tmp_path.as_posix()}/monitor.log"\n'
     )
     monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
     monkeypatch.setenv("DASHBOARD_PASSWORD", "s3cret")
@@ -279,7 +279,7 @@ def test_init_app_allows_non_loopback_host_with_trust_network_layer(tmp_path, mo
     # Tailscale-only deployment -- no DASHBOARD_PASSWORD needed.
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        f'target_dates: []\nstate_file: "{tmp_path}/state.json"\nlog_file: "{tmp_path}/monitor.log"\n'
+        f'target_dates: []\nstate_file: "{tmp_path.as_posix()}/state.json"\nlog_file: "{tmp_path.as_posix()}/monitor.log"\n'
     )
     monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
     monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
@@ -294,7 +294,7 @@ def test_init_app_allows_non_loopback_host_with_trust_network_layer(tmp_path, mo
 def test_init_app_still_refuses_without_password_or_trust_flag(tmp_path, monkeypatch):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        f'target_dates: []\nstate_file: "{tmp_path}/state.json"\nlog_file: "{tmp_path}/monitor.log"\n'
+        f'target_dates: []\nstate_file: "{tmp_path.as_posix()}/state.json"\nlog_file: "{tmp_path.as_posix()}/monitor.log"\n'
     )
     monkeypatch.setattr(monitor, "build_client", lambda engine, cfg: FakeClient())
     monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
