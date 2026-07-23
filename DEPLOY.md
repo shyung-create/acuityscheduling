@@ -1,19 +1,26 @@
 # Continuous deploy (GitHub Actions -> OCI instance)
 
 `.github/workflows/deploy.yml` runs on every push to `main`: rsync the repo
-to `/opt/acuity-alarm`, recreate the venv only if
-`requirements-appointment-alarm.txt` changed, then
-`systemctl restart acuity-alarm.timer`. No build step, no container image --
-`main.py` is a plain interpreted script.
+to `/opt/acuity-alarm`, recreate the venv only if `requirements.txt` or
+`requirements-dashboard.txt` changed, then
+`systemctl restart haircut-dashboard.service`. No build step, no container
+image -- `dashboard.py` is a plain interpreted script.
+
+> **Not yet exercised against the live server.** Every deploy so far this
+> project has been manual (SSH + `git pull` + `systemctl restart`) rather
+> than through this workflow -- the pipeline is configured correctly for
+> the current deployment but hasn't actually been triggered end-to-end yet.
+> The first real run is worth watching closely (Actions tab) rather than
+> assuming it'll just work.
 
 This assumes the server already exists (`infra/`) and has already gone
 through the one-time setup in `SETUP.md` (dedicated `acuityalarm` user,
 systemd units installed and enabled, `deploy` user from cloud-init present).
 This workflow does not create any of that, and it does not touch
-`/etc/systemd/system/*` -- if you change `systemd/acuity-alarm.service` or
-`.timer`, redeploy them manually (see `SETUP.md`) and
+`/etc/systemd/system/*` -- if you change `systemd/haircut-dashboard.service`
+or the heartbeat-check units, redeploy them manually (see `SETUP.md`) and
 `systemctl daemon-reload`; the CI job only restarts the already-installed
-timer.
+service.
 
 ## First-time setup
 
@@ -49,9 +56,9 @@ rm ./acuity-alarm-deploy-key ./acuity-alarm-deploy-key.pub
 
 ### 3. Put `.env` on the server -- manually, never through CI
 
-The pipeline never sees Telegram/Acuity credentials -- it only rsyncs code
-(`.env` is explicitly excluded from the sync). Copy it once, directly, over
-your own SSH session:
+The pipeline never sees Telegram credentials -- it only rsyncs code (`.env`
+is explicitly excluded from the sync). Copy it once, directly, over your
+own SSH session:
 
 ```bash
 scp .env deploy@<reserved-ip>:/tmp/.env
@@ -66,10 +73,9 @@ change -- CI will never overwrite or touch this file.
 
 ### 4. First deploy
 
-Push to `main`, or run the workflow manually (Actions -> Deploy appointment
-alarm -> Run workflow). The first run will find no
-`requirements-appointment-alarm.txt` hash on the server, so it creates the
-venv from scratch.
+Push to `main`, or run the workflow manually (Actions -> Deploy haircut
+availability dashboard -> Run workflow). The first run will find no
+requirements hash on the server, so it creates the venv from scratch.
 
 ## Operating the deployed service
 
@@ -77,21 +83,21 @@ Tail logs as cycles run:
 
 ```bash
 ssh deploy@<reserved-ip>
-journalctl -u acuity-alarm.service -f
+journalctl -u haircut-dashboard.service -f
 ```
 
-Trigger one poll cycle right now, without waiting for the timer (useful
-after a deploy, or to test a config change):
+Trigger one poll cycle right now, without restarting the whole service
+(useful after a deploy, or to test a config change) -- either the
+dashboard's "Poll now" button, or:
 
 ```bash
-sudo systemctl start acuity-alarm.service
+curl -s -X POST http://127.0.0.1:5000/api/poll-now
 ```
 
-Check the timer's schedule and last/next run:
+Check the service is up:
 
 ```bash
-systemctl status acuity-alarm.timer
-systemctl list-timers acuity-alarm.timer
+systemctl status haircut-dashboard.service
 ```
 
 ## What this pipeline deliberately does not do
@@ -102,5 +108,5 @@ systemctl list-timers acuity-alarm.timer
   unit file shouldn't be one `git push` away from landing unreviewed.
 - Doesn't roll back automatically on failure -- if `systemctl restart`
   fails, the workflow run goes red and you fix forward (check
-  `journalctl -u acuity-alarm.service` on the server, or watch the failed
-  step's SSH output in the Actions log).
+  `journalctl -u haircut-dashboard.service` on the server, or watch the
+  failed step's SSH output in the Actions log).

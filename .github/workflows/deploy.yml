@@ -1,9 +1,10 @@
-name: Deploy appointment alarm
+name: Deploy haircut availability dashboard
 
-# Syncs the repo to the OCI instance and restarts the timer. No build step
-# and no container registry -- main.py is an interpreted script, rsync'd
-# straight into place. Secrets (.env) are never handled by this pipeline;
-# see DEPLOY.md for the one-time manual step that puts them on the server.
+# Syncs the repo to the OCI instance and restarts the service. No build
+# step and no container registry -- dashboard.py is an interpreted script,
+# rsync'd straight into place. Secrets (.env) are never handled by this
+# pipeline; see DEPLOY.md for the one-time manual step that puts them on
+# the server.
 
 on:
   push:
@@ -14,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: acuity-alarm-deploy
+  group: haircut-dashboard-deploy
   cancel-in-progress: false
 
 env:
@@ -45,12 +46,14 @@ jobs:
             --exclude '.env' \
             --exclude '__pycache__/' \
             --exclude '*.pyc' \
-            --exclude 'state.db' \
+            --exclude 'state.json' \
+            --exclude 'monitor.log' \
+            --exclude 'heartbeat.txt*' \
             --exclude 'venv/' \
             --exclude '.requirements.sha256' \
             ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
 
-      - name: Recreate venv if requirements changed, then restart the timer
+      - name: Recreate venv if requirements changed, then restart the service
         run: |
           ssh -i ~/.ssh/deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$REMOTE_USER@$REMOTE_HOST" \
@@ -58,25 +61,25 @@ jobs:
             set -euo pipefail
             cd "$REMOTE_DIR"
 
-            NEW_HASH=$(sha256sum requirements-appointment-alarm.txt | awk '{print $1}')
+            NEW_HASH=$(cat requirements.txt requirements-dashboard.txt | sha256sum | awk '{print $1}')
             OLD_HASH=$(sudo -u "$APP_USER" cat .requirements.sha256 2>/dev/null || true)
 
             if [ "$NEW_HASH" != "$OLD_HASH" ]; then
-              echo "requirements-appointment-alarm.txt changed -- recreating venv"
+              echo "requirements changed -- recreating venv"
               sudo -u "$APP_USER" bash -c "
                 set -euo pipefail
                 cd '$REMOTE_DIR'
                 rm -rf venv
                 python3 -m venv venv
                 venv/bin/pip install --upgrade pip
-                venv/bin/pip install -r requirements-appointment-alarm.txt
+                venv/bin/pip install -r requirements-dashboard.txt
               "
               echo "$NEW_HASH" | sudo -u "$APP_USER" tee .requirements.sha256 > /dev/null
             else
-              echo "requirements-appointment-alarm.txt unchanged -- skipping venv rebuild"
+              echo "requirements unchanged -- skipping venv rebuild"
             fi
 
-            sudo systemctl restart acuity-alarm.timer
+            sudo systemctl restart haircut-dashboard.service
           REMOTE_SCRIPT
 
       - name: Clean up deploy key
