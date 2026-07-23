@@ -1,10 +1,12 @@
 [Unit]
-Description=Run the appointment alarm's dead-man's-switch check on a fixed interval
+Description=Run the haircut monitor's dead-man's-switch check on a fixed interval
 
 [Timer]
 # Single source of truth for this check's cadence -- change it here only.
-# 30 min against a 20 min staleness threshold (HEARTBEAT_STALE_MINUTES in
-# .env) gives one grace check before an outage is reported as stuck.
+# The staleness threshold itself isn't flat (see heartbeat_check.py --
+# it compares against next_expected_by, which adapts to the adaptive
+# polling phase), so this interval just needs to be frequent enough to
+# notice and alert promptly once something is actually wrong.
 OnBootSec=10min
 OnUnitActiveSec=30min
 AccuracySec=1min

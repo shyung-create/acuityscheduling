@@ -1,5 +1,0 @@
-# Pinned for the systemd/venv deployment of the appointment alarm (main.py).
-# The repo's root requirements.txt uses loose >= ranges for local dev across
-# both tools; this file is the one SETUP.md tells the server to install from.
-requests==2.32.3
-python-dateutil==2.9.0.post0

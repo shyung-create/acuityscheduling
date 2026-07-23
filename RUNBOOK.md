@@ -1,108 +1,132 @@
 # Runbook: what to check if alerts stop
 
 This is a single-purpose bot with no on-call behind it. If you got a "looks
-stuck" heartbeat alert, or you just haven't seen any Telegram messages in a
-while and aren't sure if that's because nothing happened or because
-something's broken, work through this in order.
+stuck" heartbeat alert, the dashboard won't load, or you just haven't seen
+any Telegram messages in a while and aren't sure if that's because nothing
+happened or because something's broken, work through this in order.
 
-## 1. Is the poller still running at all?
+## 1. Is the service still running at all?
 
 ```bash
 ssh deploy@<reserved-ip>
-systemctl status acuity-alarm.timer
-systemctl list-timers acuity-alarm.timer   # confirms it's scheduled and shows last/next run
+sudo systemctl status haircut-dashboard.service
 ```
 
-- **Timer inactive/disabled**: `sudo systemctl enable --now acuity-alarm.timer`
-- **Timer active but "last run" looks old**: the service itself is failing
-  to start -- go to step 2.
+- **Not `active (running)`**: `sudo systemctl restart haircut-dashboard.service`,
+  then go to step 2 to see why it stopped.
+- **Active, but the dashboard won't load in your browser**: that's likely
+  Tailscale, not the service -- see step 5.
 
 ## 2. What does the service log say?
 
 ```bash
-journalctl -u acuity-alarm.service -n 50 --no-pager
-journalctl -u acuity-alarm.service -f          # tail live
+sudo journalctl -u haircut-dashboard.service -n 50 --no-pager
+sudo journalctl -u haircut-dashboard.service -f          # tail live
 ```
 
 Common causes, in the order worth checking:
 
-- **`configuration error: missing required environment variable(s): ...`**
-  -- `.env` is missing, misplaced, or a required var was dropped. Check
-  `/opt/acuity-alarm/.env` exists and `cat` (as root or `acuityalarm`) shows
-  all of `ACUITY_USER_ID`, `ACUITY_API_KEY`, `TELEGRAM_BOT_TOKEN`,
-  `TELEGRAM_CHAT_ID`.
-- **`Acuity auth failed (HTTP 401/403)`** -- the Acuity API key was
-  regenerated/revoked in Acuity's Business Settings -> Integrations -> API,
-  or `ACUITY_USER_ID` doesn't match it. Get a fresh key/user ID from Acuity
-  and update `.env` (see `DEPLOY.md` step 3), then
-  `sudo systemctl start acuity-alarm.service` to confirm it clears.
+- **`ValueError: Invalid isoformat string: '...-0700'`** -- this exact bug
+  was fixed once already (Acuity's colonless UTC offset breaks
+  `datetime.fromisoformat()` on Python < 3.11); if it's back, the venv or
+  code is out of date. See "clean restart" below.
+- **`channels.telegram is enabled but TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
+  are not set`** -- `.env` is missing, misplaced, or those two vars are
+  blank. Check `sudo cat /opt/acuity-alarm/.env` (don't paste the actual
+  token/chat ID anywhere) and fill them in per `.env.example`'s comments,
+  then `sudo systemctl restart haircut-dashboard.service`.
 - **Telegram send logged as `FAILED`** -- most often the bot token was
   regenerated via @BotFather, or the chat ID changed (e.g. you deleted/
-  recreated the chat with the bot). Get a fresh token/chat ID (see
-  `.env.example`'s Telegram setup comments) and update `.env`.
+  recreated the chat with the bot). Get a fresh token/chat ID and update
+  `.env`.
 - **`ModuleNotFoundError` or similar Python import error** -- the venv is
   missing or out of date; see "clean restart" below.
-- **Nothing in the log at all, ever** -- the timer isn't actually
-  triggering the service; re-check step 1, and confirm
-  `/etc/systemd/system/acuity-alarm.timer` and `.service` match what's in
-  this repo's `systemd/` (a manual step -- CI does not deploy these files,
-  see `DEPLOY.md`).
+- **Repeated "unexpected error during background poll"** -- the poller
+  thread caught an exception and kept going (by design, so one bad cycle
+  doesn't kill the whole dashboard), but if it's the *same* traceback every
+  cycle, that's a real bug -- check whether it's a known one already fixed
+  upstream (`git log`), and if not, that's a genuine new issue to debug.
 
-## 3. Did the heartbeat alert actually fire, or is the heartbeat check itself broken?
+## 3. Confirm a poll cycle actually completes cleanly
+
+Either wait for the next cycle in the log, or force one immediately from
+the dashboard's "Poll now" button (or `curl -s -X POST http://127.0.0.1:5000/api/poll-now`
+on the server itself), then check the log for a clean cycle with no
+traceback.
+
+## 4. Did the heartbeat alert actually fire, or is the heartbeat check itself broken?
 
 The heartbeat check is deliberately standalone (no shared code with the
-Acuity/Telegram client used above), so check it independently:
+Acuity/Telegram code the dashboard uses), so check it independently:
 
 ```bash
-journalctl -u heartbeat-check.service -n 20 --no-pager
+sudo journalctl -u heartbeat-check.service -n 20 --no-pager
 systemctl status heartbeat-check.timer
-cat /opt/acuity-alarm/heartbeat.txt   # timestamp of the last successful acuity-alarm cycle
+cat /opt/acuity-alarm/heartbeat.txt   # {"last_poll": ..., "next_expected_by": ...}
 ```
 
-If `heartbeat.txt` is fresh (updated within the last ~20 min) but you got an
-alert anyway, or the file is stale but no alert arrived, re-run it by hand:
+If it looks fresh but you got an alert anyway, or looks stale but no alert
+arrived, re-run it by hand:
 
 ```bash
 sudo systemctl start heartbeat-check.service
-journalctl -u heartbeat-check.service -n 20 --no-pager
+sudo journalctl -u heartbeat-check.service -n 20 --no-pager
 ```
 
 It prints exactly what it decided and why (`heartbeat-check: OK (...)`,
-`... stale heartbeat, alert sent`, or `... TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
-not set`).
+`... stale, alert sent`, or `... TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not
+set`). Note that `next_expected_by` adapts to the adaptive polling phase --
+a multi-hour gap between polls during the "far" phase is normal, not stuck;
+only trust an alert that says it's actually past `next_expected_by`.
 
-## 4. Manually trigger one cycle to confirm things actually work
+## 5. Dashboard won't load, but the service is running
 
-```bash
-sudo systemctl start acuity-alarm.service
-journalctl -u acuity-alarm.service -n 20 --no-pager
-```
+- **Via Tailscale**: check `tailscale status` on both the server and the
+  device you're browsing from -- a device showing `offline` in that list
+  won't be able to reach anything on the tailnet, regardless of whether the
+  server itself is fine. Also confirm `sudo tailscale serve status` still
+  shows the proxy config (`https://<machine>.<tailnet>.ts.net -> http://127.0.0.1:5000`).
+- **Via SSH tunnel**: confirm the tunnel is actually open in a terminal
+  window (`ssh -L 5000:127.0.0.1:5000 ...`) -- closing that window drops it.
+- Either way, `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5000/`
+  run **on the server itself** tells you whether the app is responding at
+  all, independent of how you're trying to reach it.
 
-A healthy run ends with `poll cycle complete: N alert(s) sent` (N is often
-`0` -- that's normal).
+## 6. "Remove" on a watched date does nothing
 
-## 5. Clean restart
+If a date is seeded in `config.yaml`'s `target_dates`, the dashboard's
+"Remove" button will refuse with a clear error instead of silently
+reappearing (this used to be a real bug -- fixed). Two different things,
+easy to mix up:
+- **Dismiss** stops alerts for a date but keeps it visible with a
+  "Re-enable" button -- it doesn't touch `config.yaml`.
+- **Permanently removing** a `config.yaml`-seeded date means editing the
+  file itself (`git commit`/push/pull/restart) -- the dashboard alone can't
+  do it. Dates added *through* the dashboard (not in `config.yaml`) don't
+  have this problem -- "Remove" deletes them outright, but only from
+  `state.json` on this one server, not anywhere durable (see the
+  config.yaml-vs-dashboard trade-off discussion from when this was set up).
+
+## 7. Clean restart
 
 If you've fixed `.env`, updated the venv, or just want a known-good state:
 
 ```bash
-# Re-create the venv from the pinned requirements (mirrors what the deploy
-# pipeline does -- see .github/workflows/deploy.yml)
 sudo -u acuityalarm bash -c '
   cd /opt/acuity-alarm
   rm -rf venv
   python3 -m venv venv
   venv/bin/pip install --upgrade pip
-  venv/bin/pip install -r requirements-appointment-alarm.txt
+  venv/bin/pip install -r requirements-dashboard.txt
 '
 
 sudo systemctl daemon-reload
-sudo systemctl restart acuity-alarm.timer
+sudo systemctl restart haircut-dashboard.service
 sudo systemctl restart heartbeat-check.timer
-sudo systemctl start acuity-alarm.service   # confirm one cycle succeeds right away
+sudo journalctl -u haircut-dashboard.service -n 20 --no-pager   # confirm it comes up clean
 ```
 
-If it's still broken after this, the state DB or heartbeat file may be
-worth inspecting directly (`sqlite3 /opt/acuity-alarm/state.db`), but that's
-past what this runbook covers -- at that point you're debugging the code,
-not the deployment.
+If it's still broken after this, `state.json` may be worth inspecting
+directly (`cat /opt/acuity-alarm/state.json`), but that's past what this
+runbook covers -- at that point you're debugging the code, not the
+deployment.

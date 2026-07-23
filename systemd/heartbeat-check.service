@@ -1,5 +1,5 @@
 [Unit]
-Description=Dead-man's-switch check for the Acuity appointment alarm
+Description=Dead-man's-switch check for the haircut availability monitor
 After=network-online.target
 Wants=network-online.target
 

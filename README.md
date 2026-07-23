@@ -4,24 +4,10 @@ Watches `https://esharphair.as.me/schedule/dc1e29cb/appointment/82222707` for
 a bookable timeslot on your target date(s) and alerts you via Telegram
 and/or email the moment one appears.
 
-> **Live verification not yet run.** This was built in a sandboxed session
-> whose network policy blocks outbound requests to `esharphair.as.me`, so the
-> two `curl` verification commands below have **not** been executed against
-> the real site yet. The code is written against the endpoint shapes given in
-> the spec (and matches the fixtures in `tests/fixtures/`), but you should run
-> the verification step yourself before trusting it unattended:
->
-> ```bash
-> curl -s "https://esharphair.as.me/api/scheduling/v1/availability/month?owner=dc1e29cb&appointmentTypeId=82222707&calendarId=any&timezone=America%2FLos_Angeles&month=2026-09" | python3 -m json.tool
-> curl -s "https://esharphair.as.me/api/scheduling/v1/availability/times?owner=dc1e29cb&appointmentTypeId=82222707&calendarId=any&startDate=2026-09-15&timezone=America%2FLos_Angeles" | python3 -m json.tool
-> ```
->
-> Confirm: (a) the `month` param selects arbitrary future months, (b) a month
-> ~2 months out from today is entirely `false` or shows a partial cutoff --
-> this pins down the shop's real rolling booking-window length. Report back
-> what you see; `monitor.py` will self-correct its estimate the first time it
-> observes a real false→true flip regardless (see "How it works" below), but
-> confirming the shapes up front catches API changes early.
+**Verified live.** This has been running in production against the real
+`esharphair.as.me` API since mid-2026 -- deployed on Oracle Cloud as
+`dashboard.py` (see `SETUP.md`), sending real Telegram alerts for real
+open slots. See `RUNBOOK.md` if it ever stops working.
 
 ## How it works
 

@@ -15,12 +15,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import logging.handlers
+import os
 import signal
 import sys
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import config as config_mod
@@ -356,6 +358,24 @@ def compute_next_sleep_seconds(cfg: config_mod.Config, state: dict, now: datetim
     return min(intervals) if intervals else int(cfg.poll.far_hours * 3600)
 
 
+def write_heartbeat(heartbeat_file: str, now: datetime, sleep_seconds: int, grace_minutes: float = 20) -> None:
+    """Records that a poll cycle just completed, and when the next one is
+    expected -- read by the standalone heartbeat_check.py dead-man's-switch
+    (see RUNBOOK.md). Storing next_expected_by (rather than a flat staleness
+    threshold) lets the checker adapt automatically to whichever adaptive-
+    polling phase is active: cycles can legitimately be hours apart in the
+    "far" phase, and a flat "no update in N minutes" threshold would
+    false-alarm on that. `grace_minutes` absorbs jitter/slow cycles/the
+    checker's own polling cadence.
+    """
+    next_expected_by = now + timedelta(seconds=sleep_seconds) + timedelta(minutes=grace_minutes)
+    payload = {"last_poll": now.isoformat(), "next_expected_by": next_expected_by.isoformat()}
+    tmp_path = f"{heartbeat_file}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh)
+    os.replace(tmp_path, heartbeat_file)
+
+
 def run_daemon(cfg: config_mod.Config, secrets: config_mod.Secrets, client, state: dict) -> None:
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
     signal.signal(signal.SIGTERM, _handle_shutdown_signal)
@@ -380,6 +400,7 @@ def run_daemon(cfg: config_mod.Config, secrets: config_mod.Secrets, client, stat
 
         now = datetime.now(timezone.utc)
         sleep_seconds = compute_next_sleep_seconds(cfg, state, now)
+        write_heartbeat(cfg.heartbeat_file, now, sleep_seconds)
         logger.info("sleeping %ds until next poll", sleep_seconds)
         slept = 0
         while slept < sleep_seconds and not _shutdown_requested:

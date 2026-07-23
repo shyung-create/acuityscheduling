@@ -148,6 +148,7 @@ def _poller_loop() -> None:
 
             now = datetime.now(timezone.utc)
             sleep_seconds = monitor.compute_next_sleep_seconds(cfg, state, now)
+            monitor.write_heartbeat(cfg.heartbeat_file, now, sleep_seconds)
         logger.info("dashboard poller sleeping %ds", sleep_seconds)
 
         _wake_event.clear()

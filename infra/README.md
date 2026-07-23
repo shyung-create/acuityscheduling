@@ -1,9 +1,10 @@
 # Infrastructure (OCI, Terraform)
 
-Provisions just enough to run the appointment alarm's `main.py` on a
-schedule: a network with no inbound listener except SSH, and one compute
-instance. Deploying the app itself onto this VM (systemd units, `.env`,
-venv) is a separate step -- see the repo root's `SETUP.md`.
+Provisions just enough to run the haircut availability dashboard
+(`dashboard.py`, see `SETUP.md`) on a small always-on VM: a network with no
+inbound listener except SSH, and one compute instance. Deploying the app
+itself onto this VM (systemd units, `.env`, venv) is a separate step -- see
+the repo root's `SETUP.md`.
 
 ## ⚠️ This intentionally uses the AMD Always Free shape, not Ampere A1
 

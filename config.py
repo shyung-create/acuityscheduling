@@ -59,7 +59,8 @@ class Config:
     channels: ChannelsConfig = field(default_factory=ChannelsConfig)
     dry_run: bool = False
     alert_on_removal: bool = False
-    heartbeat: bool = False
+    heartbeat: bool = False  # daily "still watching" Telegram/email message -- see maybe_send_heartbeat()
+    heartbeat_file: str = "heartbeat.txt"  # dead-man's-switch timestamp file -- see heartbeat_check.py, unrelated to the flag above
     state_file: str = "state.json"
     log_file: str = "monitor.log"
     booking_url: str = "https://esharphair.as.me/schedule/dc1e29cb/appointment/82222707"
@@ -157,6 +158,7 @@ def load_config(path: str) -> Config:
         dry_run=bool(raw.get("dry_run", False)),
         alert_on_removal=bool(raw.get("alert_on_removal", False)),
         heartbeat=bool(raw.get("heartbeat", False)),
+        heartbeat_file=raw.get("heartbeat_file", "heartbeat.txt"),
         state_file=raw.get("state_file", "state.json"),
         log_file=raw.get("log_file", "monitor.log"),
         booking_url=raw.get(
