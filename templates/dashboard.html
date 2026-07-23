@@ -85,6 +85,11 @@
   }
   button.secondary { background: var(--gray-bg); color: var(--text); }
   button.danger { background: var(--red-bg); color: var(--red); }
+  .book-link-btn {
+    background: var(--accent); color: #fff; border-radius: 8px;
+    padding: .55rem 1rem; font-size: .9rem; font-weight: 600;
+    text-decoration: none; display: inline-flex; align-items: center;
+  }
   button:disabled { opacity: .55; cursor: default; }
   .hint { color: var(--muted); font-size: .78rem; margin-top: .4rem; }
   .toolbar { display: flex; gap: .5rem; flex-wrap: wrap; }
@@ -129,6 +134,7 @@
     </div>
     <div class="toolbar">
       <span id="dry-run-flag" class="dry-run-flag" style="display:none;">DRY RUN</span>
+      <a id="booking-link-header" class="book-link-btn" href="#" target="_blank" rel="noopener" style="display:none;">Book now →</a>
       <button class="secondary" id="poll-now-btn">Poll now</button>
       <button class="secondary" id="test-notif-btn">Send test notification</button>
     </div>
@@ -242,6 +248,13 @@ function renderCards(data) {
   $("#now-line").textContent =
     `Now: ${new Date(data.now).toLocaleString()} · Furthest bookable date seen: ${data.furthest_bookable_date || "unknown"}`;
   $("#dry-run-flag").style.display = data.dry_run ? "inline-block" : "none";
+  const bookingLinkHeader = $("#booking-link-header");
+  if (bookingUrl) {
+    bookingLinkHeader.href = bookingUrl;
+    bookingLinkHeader.style.display = "inline-flex";
+  } else {
+    bookingLinkHeader.style.display = "none";
+  }
 
   const cards = $("#cards");
   if (!data.targets.length) {

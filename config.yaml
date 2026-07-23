@@ -17,7 +17,7 @@ acuity:
   appointment_type_id: "82222707"
   calendar_id: "any"
 
-booking_url: "https://esharphair.as.me/schedule/dc1e29cb/appointment/82222707"
+booking_url: "https://esharphair.as.me/schedule/dc1e29cb/appointment/82222707/calendar/any"
 business_name: "E sharp hair"
 
 # Initial guess only, used to seed the polling cadence before any date has
